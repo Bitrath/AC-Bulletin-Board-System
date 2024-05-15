@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#define MAX_USER_CHAR 128
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -12,8 +13,8 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#include "utils.h"
-#include "rxb.h"
+#include "../Utils/utils.h"
+#include "../Utils/rxb.h"
 
 #define MAX_REQUEST_SIZE (64 * 1024)
 
@@ -33,13 +34,63 @@ void t_disconnect(int sd)
     pthread_exit(NULL);
 }
 
+void *handshake(int ns, unsigned int *k_len, char *name) 
+/* handshake -> funzione che si occupa dello scambio di dati tra client e server
+                al fine di effettuare l'autenticazione del client e di stabilire
+                una chiave di sessione, creare certificati, ecc...
+                Porta come argomenti la: 
+                    - ns -> effettiva socket per scambiare dati
+                    - k_len -> lunghezza della chiave
+                    - name -> nome dell'utente client
+                
+                Questa funzione returnera' la chiave di sessione (segreto condiviso)
+*/
+{
+    char user[MAX_USER_CHAR];
+    size_t user_len;   
+    memset(&user, 0, sizeof(user)); // libero la memoria per user e creo la sua DIM
+    user_len = sizeof(user) - 1;
+
+    rxb_t rxb;      // dichiarazione e inizializzazione dello strumento di lettura
+    rxb_init(&rxb, MAX_REQUEST_SIZE);
+
+    if (rxb_readline(&rxb, ns, user, &user_len))    // leggo il nome utente dal client
+    {
+        fprintf(stderr, "Errore readline identificazione user");
+        rxb_destroy(&rxb);  // in caso di errore chiudo lo strumento di lettura
+        t_disconnect(ns);   // in caso di errore chiudo la new socket con la t_disconnect
+    }
+
+    char command[100];
+    sprintf(command, "grep -q '%s' utenti.txt", user);
+
+    // Esecuzione del comando e controllo del valore di ritorno per vedere se l'user e' stato trovato
+    int result = system(command);
+
+    if (result == 0) {
+        printf("Utente presente, login in corso...\n");
+    } else if (result == 256) {
+        printf("L'utente attuale non e' registrato.\n");
+        rxb_destroy(&rxb);  
+        t_disconnect(ns);
+    } else {
+        printf("Errore durante l'esecuzione di grep.\n");
+    }
+
+    return 0;
+}
+
 void *secureConnection(void *old_sd)
 {
-    char user[] = "";
+    char *user = "";
     int sd = *((int *)old_sd);
     unsigned int key_len = 0;
 
+    unsigned char *K_ab = handshake(sd, &key_len, user);
+
     t_disconnect(sd);
+
+    return 0;
 }
 
 int main(int argc, char **argv)
@@ -123,8 +174,6 @@ int main(int argc, char **argv)
             free(ns);
         }
         pthread_detach(t_id);
-
-        close(*ns);
     }
     close(sd);
     return 0;
