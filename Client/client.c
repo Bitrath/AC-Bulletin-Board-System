@@ -5,8 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
-#include "rxb.h"
-#include "utils.h"
+#include "../Utils/rxb.h"
+#include "../Utils/utils.h"
 
 #define MAX_REQUEST_SIZE (64 * 1024)
 
@@ -64,56 +64,23 @@ int main(int argc, char **argv)
 
     for (;;)
     {
-        char funzione[128];
-        char produttore[128];
-        char ordine[128];
+        char user[128];
 
-        puts("Inserire la funzione desiderata: (fine per terminare)");
-        if (fgets(funzione, sizeof(funzione), stdin) < 0)
+        puts("Inserire lo username: (fine per terminare)"); // inserisco lo user per effettuare il login
+        if (fgets(user, sizeof(user), stdin) < 0)
         {
-            fprintf(stderr, "Errore fgets funzione");
+            fprintf(stderr, "Errore fgets user");
             exit(EXIT_FAILURE);
         }
-        if (strcmp(funzione, "fine\n") == 0)
+
+        if (strcmp(user, "fine\n") == 0)
         {
             exit(EXIT_SUCCESS);
         }
 
-        puts("Inserire il produttore:");
-        if (fgets(produttore, sizeof(produttore), stdin) < 0)
+        if (write_all(sd, user, strlen(user)) < 0)
         {
-            fprintf(stderr, "Errore fgets produttore");
-            exit(EXIT_FAILURE);
-        }
-        if (strcmp(produttore, "fine\n") == 0)
-        {
-            exit(EXIT_SUCCESS);
-        }
-
-        puts("Inserire l'ordine di visualizzazione:");
-        if (fgets(ordine, sizeof(ordine), stdin) < 0)
-        {
-            fprintf(stderr, "Errore fgets ordine");
-            exit(EXIT_FAILURE);
-        }
-        if (strcmp(ordine, "fine\n") == 0)
-        {
-            exit(EXIT_SUCCESS);
-        }
-
-        if (write_all(sd, funzione, strlen(funzione)) < 0)
-        {
-            fprintf(stderr, "Errore write_all funzione");
-            exit(EXIT_FAILURE);
-        }
-        if (write_all(sd, produttore, strlen(produttore)) < 0)
-        {
-            fprintf(stderr, "Errore write_all produttore");
-            exit(EXIT_FAILURE);
-        }
-        if (write_all(sd, ordine, strlen(ordine)) < 0)
-        {
-            fprintf(stderr, "Errore write_all ordine");
+            fprintf(stderr, "Errore write_all user");
             exit(EXIT_FAILURE);
         }
 
