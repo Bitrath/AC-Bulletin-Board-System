@@ -1,21 +1,73 @@
 #define _POSIX_C_SOURCE 200809L
+#define MAX_REQUEST_SIZE (64 * 1024)
+#define NONCE_LEN 16
+#define MAX_USER_CHAR 128
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <openssl/conf.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
+#include <openssl/rand.h>
 #include "../Utils/rxb.h"
 #include "../Utils/utils.h"
 
-#define MAX_REQUEST_SIZE (64 * 1024)
+void *handshake(int sd)
+{
+
+    unsigned char nonce_c[NONCE_LEN];
+    int rc = RAND_bytes(nonce_c, sizeof(nonce_c)); // nonce del client creato con successo
+    if (rc != 1)
+    {
+        fprintf(stderr, "Errore creazione nonce");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Calcolato il nonce client: ");
+    for (int i = 0; i < NONCE_LEN; i++)
+    {
+        printf("%02x ", nonce_c[i]);
+    }
+    puts("\nInvio il nonce del client al server...");
+
+    ssize_t bytes_sent = send(sd, nonce_c, sizeof(nonce_c), 0); // con la rxb non si riesce perchè comunica solo in char
+                                                                // piu' comode la send e rcv
+    if (bytes_sent < 0)
+    {
+        perror("Errore send");
+        exit(EXIT_FAILURE);
+    }
+
+    // --- CONTROLLO PRESENZA DELL'UTENTE TRA QUELLI REGISTRATI ---
+
+    char user[MAX_USER_CHAR];
+
+    puts("Inserire il username: ");
+    if (fgets(user, sizeof(user), stdin) < 0)
+    {
+        fprintf(stderr, "Errore fgets user");
+        exit(EXIT_FAILURE);
+    }
+
+    size_t user_len = strlen(user);
+    bytes_sent = send(sd, user, user_len, 0);
+
+    if (bytes_sent < 0)
+    {
+        perror("Errore send");
+        exit(EXIT_FAILURE);
+    }
+
+    return 0;
+}
 
 int main(int argc, char **argv)
 {
-
     int err, sd;
     struct addrinfo hints, *res, *ptr;
-    rxb_t rxb;
 
     if (argc != 3)
     {
@@ -60,54 +112,8 @@ int main(int argc, char **argv)
 
     freeaddrinfo(res);
 
-    rxb_init(&rxb, MAX_REQUEST_SIZE);
+    unsigned char *K_ab = handshake(sd);
 
-    for (;;)
-    {
-        char user[128];
-
-        puts("Inserire lo username: (fine per terminare)"); // inserisco lo user per effettuare il login
-        if (fgets(user, sizeof(user), stdin) < 0)
-        {
-            fprintf(stderr, "Errore fgets user");
-            exit(EXIT_FAILURE);
-        }
-
-        if (strcmp(user, "fine\n") == 0)
-        {
-            exit(EXIT_SUCCESS);
-        }
-
-        if (write_all(sd, user, strlen(user)) < 0)
-        {
-            fprintf(stderr, "Errore write_all user");
-            exit(EXIT_FAILURE);
-        }
-
-        for (;;)
-        {
-            char response[MAX_REQUEST_SIZE];
-            size_t response_len;
-
-            memset(&response, 0, sizeof(response));
-            response_len = sizeof(response) - 1;
-
-            if (rxb_readline(&rxb, sd, response, &response_len))
-            {
-                fprintf(stderr, "Errore readline response");
-                rxb_destroy(&rxb);
-                close(sd);
-                exit(EXIT_FAILURE);
-            }
-
-            puts(response);
-
-            if (strcmp(response, "--- END REQUEST ---") == 0)
-            {
-                break;
-            }
-        }
-    }
     close(sd);
     return 0;
 }

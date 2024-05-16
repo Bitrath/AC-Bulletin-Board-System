@@ -1,5 +1,8 @@
 #define _POSIX_C_SOURCE 200809L
 #define MAX_USER_CHAR 128
+#define MAX_REQUEST_SIZE (64 * 1024)
+#define NONCE_LEN 16
+#define COMMAND_DIM 100
 #include <stdio.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -13,10 +16,12 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include <openssl/conf.h>
+#include <openssl/evp.h>
+#include <openssl/err.h>
+#include <openssl/rand.h>
 #include "../Utils/utils.h"
 #include "../Utils/rxb.h"
-
-#define MAX_REQUEST_SIZE (64 * 1024)
 
 void handler(int signo)
 {
@@ -34,46 +39,81 @@ void t_disconnect(int sd)
     pthread_exit(NULL);
 }
 
-void *handshake(int ns, unsigned int *k_len, char *name) 
-/* handshake -> funzione che si occupa dello scambio di dati tra client e server
-                al fine di effettuare l'autenticazione del client e di stabilire
-                una chiave di sessione, creare certificati, ecc...
-                Porta come argomenti la: 
-                    - ns -> effettiva socket per scambiare dati
-                    - k_len -> lunghezza della chiave
-                    - name -> nome dell'utente client
-                
-                Questa funzione returnera' la chiave di sessione (segreto condiviso)
-*/
+void *handshake(int ns, unsigned int *k_len, char *name)
 {
-    char user[MAX_USER_CHAR];
-    size_t user_len;   
-    memset(&user, 0, sizeof(user)); // libero la memoria per user e creo la sua DIM
-    user_len = sizeof(user) - 1;
+    /* handshake -> funzione che si occupa dello scambio di dati tra client e server
+                    al fine di effettuare l'autenticazione del client e di stabilire
+                    una chiave di sessione, creare certificati, ecc...
+                    Porta come argomenti la:
+                        - ns -> effettiva socket per scambiare dati
+                        - k_len -> lunghezza della chiave
+                        - name -> nome dell'utente client
 
-    rxb_t rxb;      // dichiarazione e inizializzazione dello strumento di lettura
-    rxb_init(&rxb, MAX_REQUEST_SIZE);
+                    Questa funzione returnera' la chiave di sessione (segreto condiviso)
+    */
 
-    if (rxb_readline(&rxb, ns, user, &user_len))    // leggo il nome utente dal client
+    // --- RICEZIONE DEL NONCE DAL CLIENT ---
+
+    unsigned char nonce_c[NONCE_LEN];
+    ssize_t bytes_received = recv(ns, nonce_c, sizeof(nonce_c), 0);
+
+    if (bytes_received < 0)
     {
-        fprintf(stderr, "Errore readline identificazione user");
-        rxb_destroy(&rxb);  // in caso di errore chiudo lo strumento di lettura
-        t_disconnect(ns);   // in caso di errore chiudo la new socket con la t_disconnect
+        perror("Errore recv");
+        close(ns);
+        pthread_exit(NULL);
     }
 
-    char command[100];
-    sprintf(command, "grep -q '%s' utenti.txt", user);
+    printf("Nonce del client ricevuto: ");
+    for (int i = 0; i < NONCE_LEN; i++)
+    {
+        printf("%02x ", nonce_c[i]); // %x perche' e' in
+    }
+    puts("");
 
-    // Esecuzione del comando e controllo del valore di ritorno per vedere se l'user e' stato trovato
-    int result = system(command);
+    // --- RICEZIONE DEL NOME UTENTE DA CONTROLLARE TRA QUELLI REGISTRATI ---
 
-    if (result == 0) {
+    char user[MAX_USER_CHAR];
+    bytes_received = recv(ns, user, sizeof(user), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("Errore recv");
+        close(ns);
+        pthread_exit(NULL);
+    }
+
+    int user_len = strlen(user);
+    user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio
+
+    // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
+
+    char command[COMMAND_DIM];
+    sprintf(command, "grep -qw '%s' utenti.txt", user); // grep silenziosa (senza output con -q)
+                                                        // e con solo parole cercate intere (-w)
+                                                        // gli '' servono per confermare una 
+                                                        // corrispondenza esatta
+    printf("Nome utente: ");
+    for (size_t i = 0; i < user_len; ++i)
+    {
+        printf("%c", user[i]);
+    }
+    puts("");
+
+    int result = system(command); // Esecuzione del comando e controllo del valore di ritorno
+                                  // per vedere se l'user e' stato trovato
+
+    if (result == 0)
+    {
         printf("Utente presente, login in corso...\n");
-    } else if (result == 256) {
+    }
+    else if (result == 256)
+    {
         printf("L'utente attuale non e' registrato.\n");
-        rxb_destroy(&rxb);  
         t_disconnect(ns);
-    } else {
+    }
+    else
+    {
         printf("Errore durante l'esecuzione di grep.\n");
     }
 
