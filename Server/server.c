@@ -16,10 +16,9 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
-#include <openssl/conf.h>
 #include <openssl/evp.h>
-#include <openssl/err.h>
 #include <openssl/rand.h>
+#include <openssl/pem.h>
 #include "../Utils/utils.h"
 #include "../Utils/rxb.h"
 
@@ -39,7 +38,61 @@ void t_disconnect(int sd)
     pthread_exit(NULL);
 }
 
-void *handshake(int ns, unsigned int *k_len, char *name)
+int client_control(int ns) // ritorna 1 se il client e' effettivamente presente nel DB
+{
+    // --- RICEZIONE DEL NOME UTENTE DA CONTROLLARE TRA QUELLI REGISTRATI ---
+
+    char user[MAX_USER_CHAR];
+    ssize_t bytes_rcv = recv(ns, user, sizeof(user), 0);
+
+    if (bytes_rcv < 0)
+    {
+        perror("Errore recv");
+        close(ns);
+        pthread_exit(NULL);
+    }
+
+    int user_len = strlen(user);
+    user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio 
+
+    // [(N), (i), (c), (o), ..., (\0))
+
+    // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
+
+    char command[COMMAND_DIM];
+    sprintf(command, "grep -qw '%s' utenti.txt", user); // grep silenziosa (senza output con -q)
+                                                        // e con solo parole cercate intere (-w)
+                                                        // gli '' servono per confermare una
+                                                        // corrispondenza esatta
+    printf("Nome utente: ");
+    for (size_t i = 0; i < user_len; ++i)
+    {
+        printf("%c", user[i]);
+    }
+    puts("");
+
+    int result = system(command); // Esecuzione del comando e controllo del valore di ritorno
+                                  // per vedere se l'user e' stato trovato
+
+    if (result == 0)
+    {
+        printf("Utente presente, login in corso...\n");
+        return 1;
+    }
+    else if (result == 256)
+    {
+        printf("L'utente attuale non e' registrato.\n");
+        t_disconnect(ns);
+        return 0;
+    }
+    else
+    {
+        printf("Errore durante l'esecuzione di grep.\n");
+        return 0;
+    }
+}
+
+void *handshake(int ns, unsigned int *k_len, char *name)    // name opzionale (da usare solo se si effettua il login)
 {
     /* handshake -> funzione che si occupa dello scambio di dati tra client e server
                     al fine di effettuare l'autenticazione del client e di stabilire
@@ -51,6 +104,10 @@ void *handshake(int ns, unsigned int *k_len, char *name)
 
                     Questa funzione returnera' la chiave di sessione (segreto condiviso)
     */
+
+    /* ------------------------------------
+       1) SCAMBIO NONCE CON IL CLIENT
+       ------------------------------------ */
 
     // --- RICEZIONE DEL NONCE DAL CLIENT ---
 
@@ -67,55 +124,38 @@ void *handshake(int ns, unsigned int *k_len, char *name)
     printf("Nonce del client ricevuto: ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
-        printf("%02x ", nonce_c[i]); // %x perche' e' in
+        printf("%x ", nonce_c[i]); // %x perche' e' in bytes
     }
     puts("");
 
-    // --- RICEZIONE DEL NOME UTENTE DA CONTROLLARE TRA QUELLI REGISTRATI ---
+    // --- CREAZIONE NONCE SERVER ---
 
-    char user[MAX_USER_CHAR];
-    bytes_received = recv(ns, user, sizeof(user), 0);
-
-    if (bytes_received < 0)
+    unsigned char nonce_s[NONCE_LEN];
+    int rs = RAND_bytes(nonce_s, sizeof(nonce_s)); // nonce del client creato con successo
+    if (rs != 1)
     {
-        perror("Errore recv");
-        close(ns);
-        pthread_exit(NULL);
+        fprintf(stderr, "Errore creazione nonce");
+        exit(EXIT_FAILURE);
     }
 
-    int user_len = strlen(user);
-    user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio
-
-    // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
-
-    char command[COMMAND_DIM];
-    sprintf(command, "grep -qw '%s' utenti.txt", user); // grep silenziosa (senza output con -q)
-                                                        // e con solo parole cercate intere (-w)
-                                                        // gli '' servono per confermare una 
-                                                        // corrispondenza esatta
-    printf("Nome utente: ");
-    for (size_t i = 0; i < user_len; ++i)
+    printf("Calcolato il nonce server: ");
+    for (int i = 0; i < NONCE_LEN; i++)
     {
-        printf("%c", user[i]);
+        printf("%x ", nonce_s[i]);
     }
-    puts("");
 
-    int result = system(command); // Esecuzione del comando e controllo del valore di ritorno
-                                  // per vedere se l'user e' stato trovato
+    // --- INVIO DEL NONCE SERVER AL CLIENT ---
 
-    if (result == 0)
+    puts("\nInvio il nonce del client al server...");
+
+    ssize_t bytes_sent = send(ns, nonce_s, sizeof(nonce_s), 0); // con la rxb non si riesce perchè comunica solo in char
+                                                                // piu' comode la send e rcv
+    if (bytes_sent < 0)
     {
-        printf("Utente presente, login in corso...\n");
+        perror("Errore send nonce al client");
+        exit(EXIT_FAILURE);
     }
-    else if (result == 256)
-    {
-        printf("L'utente attuale non e' registrato.\n");
-        t_disconnect(ns);
-    }
-    else
-    {
-        printf("Errore durante l'esecuzione di grep.\n");
-    }
+    
 
     return 0;
 }
@@ -145,8 +185,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Errore argomenti, usa: ./server porta");
         exit(EXIT_FAILURE);
     }
-
-    signal(SIGPIPE, SIG_IGN);
 
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;

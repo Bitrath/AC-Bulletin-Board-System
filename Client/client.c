@@ -15,8 +15,42 @@
 #include "../Utils/rxb.h"
 #include "../Utils/utils.h"
 
+void client_control(int sd)
+{
+    // --- CONTROLLO PRESENZA DELL'UTENTE TRA QUELLI REGISTRATI ---
+
+    char user[MAX_USER_CHAR];
+    ssize_t bytes_sent;
+
+    memset(&user, 0, sizeof(user));     // inizializzo tutto il vettore a 0
+    size_t user_len = sizeof(user) - 1;
+
+    puts("Inserire il username: ");
+    if (fgets(user, sizeof(user), stdin) < 0)
+    {
+        fprintf(stderr, "Errore fgets user");
+        exit(EXIT_FAILURE);
+    }
+    else if (strlen(user) >= MAX_USER_CHAR - 1) // informati su strnlen
+    {
+        fprintf(stderr, "L'username inserito e' troppo lungo. (> 128 char)\n");
+        exit(EXIT_FAILURE);
+    }
+
+    bytes_sent = send(sd, user, user_len, 0);
+
+    if (bytes_sent < 0)
+    {
+        perror("Errore send");
+        exit(EXIT_FAILURE);
+    }
+}
+
 void *handshake(int sd)
 {
+    /* ------------------------------------
+       1) SCAMBIO NONCE CON IL CLIENT
+       ------------------------------------ */
 
     unsigned char nonce_c[NONCE_LEN];
     int rc = RAND_bytes(nonce_c, sizeof(nonce_c)); // nonce del client creato con successo
@@ -29,7 +63,7 @@ void *handshake(int sd)
     printf("Calcolato il nonce client: ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
-        printf("%02x ", nonce_c[i]);
+        printf("%x ", nonce_c[i]);
     }
     puts("\nInvio il nonce del client al server...");
 
@@ -41,25 +75,25 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
-    // --- CONTROLLO PRESENZA DELL'UTENTE TRA QUELLI REGISTRATI ---
+    // --- RICEZIONE NONCE DEL SERVER ---
 
-    char user[MAX_USER_CHAR];
+    unsigned char nonce_s[NONCE_LEN];
+    ssize_t bytes_received = recv(sd, nonce_s, sizeof(nonce_s), 0);
 
-    puts("Inserire il username: ");
-    if (fgets(user, sizeof(user), stdin) < 0)
+    if (bytes_received < 0)
     {
-        fprintf(stderr, "Errore fgets user");
-        exit(EXIT_FAILURE);
+        perror("Errore recv nonce del server");
+        close(sd);
+        pthread_exit(NULL);
     }
 
-    size_t user_len = strlen(user);
-    bytes_sent = send(sd, user, user_len, 0);
-
-    if (bytes_sent < 0)
+    printf("Nonce del server ricevuto: ");
+    for (int i = 0; i < NONCE_LEN; i++)
     {
-        perror("Errore send");
-        exit(EXIT_FAILURE);
+        printf("%x ", nonce_s[i]); // %x perche' e' in bytes
     }
+    puts("");
+
 
     return 0;
 }
