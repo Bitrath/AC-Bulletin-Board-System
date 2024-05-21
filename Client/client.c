@@ -53,6 +53,7 @@ void *handshake(int sd)
        ------------------------------------ */
 
     unsigned char nonce_c[NONCE_LEN];
+    RAND_poll();    // context init
     int rc = RAND_bytes(nonce_c, sizeof(nonce_c)); // nonce del client creato con successo
     if (rc != 1)
     {

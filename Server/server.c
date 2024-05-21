@@ -19,6 +19,7 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
+#include "../Utils/Dif_Hel.h"
 #include "../Utils/utils.h"
 #include "../Utils/rxb.h"
 
@@ -44,6 +45,7 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
 
     char user[MAX_USER_CHAR];
     ssize_t bytes_rcv = recv(ns, user, sizeof(user), 0);
+    uint32_t *len;
 
     if (bytes_rcv < 0)
     {
@@ -53,9 +55,7 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
     }
 
     int user_len = strlen(user);
-    user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio 
-
-    // [(N), (i), (c), (o), ..., (\0))
+    user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio
 
     // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
 
@@ -76,12 +76,12 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
 
     if (result == 0)
     {
-        printf("Utente presente, login in corso...\n");
+        puts("Utente presente, login in corso...");
         return 1;
     }
     else if (result == 256)
     {
-        printf("L'utente attuale non e' registrato.\n");
+        puts("L'utente attuale non e' registrato.");
         t_disconnect(ns);
         return 0;
     }
@@ -92,7 +92,7 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
     }
 }
 
-void *handshake(int ns, unsigned int *k_len, char *name)    // name opzionale (da usare solo se si effettua il login)
+void *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da usare solo se si effettua il login)
 {
     /* handshake -> funzione che si occupa dello scambio di dati tra client e server
                     al fine di effettuare l'autenticazione del client e di stabilire
@@ -131,7 +131,9 @@ void *handshake(int ns, unsigned int *k_len, char *name)    // name opzionale (d
     // --- CREAZIONE NONCE SERVER ---
 
     unsigned char nonce_s[NONCE_LEN];
+    RAND_poll();                                   // context init
     int rs = RAND_bytes(nonce_s, sizeof(nonce_s)); // nonce del client creato con successo
+
     if (rs != 1)
     {
         fprintf(stderr, "Errore creazione nonce");
@@ -155,7 +157,27 @@ void *handshake(int ns, unsigned int *k_len, char *name)    // name opzionale (d
         perror("Errore send nonce al client");
         exit(EXIT_FAILURE);
     }
-    
+
+    // --- CREAZIONE CHIAVE PRIVATA SERVER ---
+
+    EVP_PKEY *DHprivKey = DH_privkey();
+    EVP_PKEY *DHpubKey = EVP_PKEY_new();
+
+    // ricavo e leggo file PEM con la mia chiave pubblica
+    // genera dinamicamente il nome del file!
+    len = (uint32_t *)malloc(sizeof(uint32_t));
+    if (!len)
+    {
+        perror("Errore nella malloc");
+        EVP_PKEY_free(DHprivkey);
+        free(nonce_c);
+        EVP_PKEY_free(DHpubKey);
+
+        disconnect(ns);
+    }
+
+
+    sprintf(filepath, "grep -qw '%s' utenti.txt", user);
 
     return 0;
 }
