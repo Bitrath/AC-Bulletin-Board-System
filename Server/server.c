@@ -45,7 +45,6 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
 
     char user[MAX_USER_CHAR];
     ssize_t bytes_rcv = recv(ns, user, sizeof(user), 0);
-    uint32_t *len;
 
     if (bytes_rcv < 0)
     {
@@ -92,7 +91,7 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
     }
 }
 
-void *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da usare solo se si effettua il login)
+unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da usare solo se si effettua il login)
 {
     /* handshake -> funzione che si occupa dello scambio di dati tra client e server
                     al fine di effettuare l'autenticazione del client e di stabilire
@@ -112,6 +111,7 @@ void *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da u
     // --- RICEZIONE DEL NONCE DAL CLIENT ---
 
     unsigned char nonce_c[NONCE_LEN];
+    uint32_t *len;
     ssize_t bytes_received = recv(ns, nonce_c, sizeof(nonce_c), 0);
 
     if (bytes_received < 0)
@@ -158,28 +158,49 @@ void *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da u
         exit(EXIT_FAILURE);
     }
 
+    /* ------------------------------------
+       2) CREAZIONE CHIAVE PRIVATA E PUBBLICA
+       ------------------------------------ */
+
     // --- CREAZIONE CHIAVE PRIVATA SERVER ---
 
     EVP_PKEY *DHprivKey = DH_privkey();
-    EVP_PKEY *DHpubKey = EVP_PKEY_new();
+
+    // --- INIZIALIZZAZIONE STRUCT PER LA CHIAVE PUBBLICA
+
+    // EVP_PKEY *DHpubKey = EVP_PKEY_new(); ---> potenzialmente inutile
 
     // ricavo e leggo file PEM con la mia chiave pubblica
     // genera dinamicamente il nome del file!
+
     len = (uint32_t *)malloc(sizeof(uint32_t));
     if (!len)
     {
         perror("Errore nella malloc");
-        EVP_PKEY_free(DHprivkey);
-        free(nonce_c);
-        EVP_PKEY_free(DHpubKey);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        t_disconnect(ns);
+    }
+    // Get the (string) Server_Pub_Key from Server.PEM file
+    unsigned char *DH_pubkeyPEM = DH_pub_key("dh_PUBKEY_server.pem", DHprivKey, len);
 
-        disconnect(ns);
+    if (!DH_pubkeyPEM)
+    {
+        perror("Errore nella ricezione della stringa contenente la pubKey");
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        t_disconnect(ns);
+    }
+    uint32_t DHpubkeyLEN = *len;
+    // EVP_PKEY_free(DHpubKey); ---> inutile ??
+
+    if ((bytes_sent = send(ns, DH_pubkeyPEM, *len, 0)) < 0)
+    {
+        perror("Errore send pubKey al client");
+        exit(EXIT_FAILURE);
     }
 
-
-    sprintf(filepath, "grep -qw '%s' utenti.txt", user);
-
-    return 0;
+    return DH_pubkeyPEM;    // da sostituire con la chiave di sessione Kab
 }
 
 void *secureConnection(void *old_sd)

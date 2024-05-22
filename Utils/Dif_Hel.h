@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <openssl/pem.h>
 #include <openssl/evp.h>
-#include <openssl/pem.h>
 
 EVP_PKEY* DH_privkey();
+unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len);
 void handleErrors();
