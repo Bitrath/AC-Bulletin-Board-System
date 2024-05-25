@@ -182,25 +182,91 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         t_disconnect(ns);
     }
     // Get the (string) Server_Pub_Key from Server.PEM file
-    unsigned char *DH_pubkeyPEM = DH_pub_key("dh_PUBKEY_server.pem", DHprivKey, len);
+    unsigned char *DH_pubkeyPEM_s = DH_pub_key("dh_PUBKEY_server.pem", DHprivKey, len);
 
-    if (!DH_pubkeyPEM)
+    if (!DH_pubkeyPEM_s)
     {
-        perror("Errore nella ricezione della stringa contenente la pubKey");
+        perror("Errore nella lettura del file contenente la pubKey");
         EVP_PKEY_free(DHprivKey);
         free(len);
         t_disconnect(ns);
     }
+
+    printf("Creata la chiave pubblica del server: %s\n", DH_pubkeyPEM_s);
+
     uint32_t DHpubkeyLEN = *len;
     // EVP_PKEY_free(DHpubKey); ---> inutile ??
 
-    if ((bytes_sent = send(ns, DH_pubkeyPEM, *len, 0)) < 0)
+    // Invia la lunghezza della chiave pubblica al CLIENT
+    bytes_sent = send(ns, len, sizeof(uint32_t), 0);
+    if (bytes_sent < 0)
+    {
+        perror("Errore send lunghezza della chiave pubblica");
+        free(DH_pubkeyPEM_s);
+        EVP_PKEY_free(DHprivKey);
+        close(ns);
+        exit(EXIT_FAILURE);
+    }
+
+    // INVIO G^b AL CLIENT
+
+    if ((bytes_sent = send(ns, DH_pubkeyPEM_s, DHpubkeyLEN, 0)) < 0)
     {
         perror("Errore send pubKey al client");
         exit(EXIT_FAILURE);
     }
 
-    return DH_pubkeyPEM;    // da sostituire con la chiave di sessione Kab
+    puts("Inviata la chiave pubblica dal server.");
+
+    ///////////////////////////
+    // RICEVO G^a DAL CLIENT //
+    ///////////////////////////
+
+    // Ricezione della lunghezza della chiave pubblica del server
+
+    uint32_t *DH_pubkeyLEN_c = (uint32_t *)malloc(sizeof(uint32_t));
+
+    bytes_received = recv(ns, DH_pubkeyLEN_c, sizeof(uint32_t), 0);
+    if (bytes_received <= 0)
+    {
+        perror("Errore recv lunghezza della chiave pubblica");
+        close(ns);
+        exit(EXIT_FAILURE);
+    }
+
+    // Ricezione della lunghezza della chiave pubblica del client
+    bytes_received = recv(ns, DH_pubkeyLEN_c, sizeof(uint32_t), 0);
+    if (bytes_received <= 0)
+    {
+        perror("Errore recv lunghezza della chiave pubblica");
+        close(ns);
+        exit(EXIT_FAILURE);
+    }
+
+    // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
+
+    unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
+    if (!DH_pubkeyPEM_c)
+    {
+        perror("Errore allocazione memoria per la chiave pubblica");
+        close(ns);
+        exit(EXIT_FAILURE);
+    }
+
+    // RICEVO G^b DAL SERVER
+
+    bytes_received = recv(ns, DH_pubkeyPEM_c, *len, 0);
+
+    if (bytes_received < 0)
+    {
+        perror("Errore recv pubK del server");
+        close(ns);
+        pthread_exit(NULL);
+    }
+
+    printf("Ricevuta la chiave pubblica dal client: %s\n", DH_pubkeyPEM_c);
+
+    return DH_pubkeyPEM_s; // da sostituire con la chiave di sessione Kab
 }
 
 void *secureConnection(void *old_sd)
