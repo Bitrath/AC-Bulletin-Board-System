@@ -72,12 +72,12 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
-    printf("\nClient < nonce created >\n-> ");
+    printf("\nClient: <Client Nonce> success.\n-> ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_c[i]);
     }
-    puts("\nClient: < sending nonce to Server >\n");
+    puts("\nClient: <Client Nonce> to <Server>");
 
     ssize_t bytes_sent = send(sd, nonce_c, sizeof(nonce_c), 0); // con la rxb non si riesce perchè comunica solo in char
                                                                 // piu' comode la send e rcv
@@ -177,7 +177,7 @@ void *handshake(int sd)
     // INVIO G^a AL SERVER //
     /////////////////////////
 
-    puts("\nClient: NEXT STEP -> <Client Public Key> to <Server>\n\n");
+    puts("\nClient: NEXT STEP -> <Client Public Key> to <Server>\n");
 
     uint32_t DHpubkeyLEN = *len;
 
@@ -263,7 +263,7 @@ int main(int argc, char **argv)
 
         if (connect(sd, ptr->ai_addr, ptr->ai_addrlen) == 0)
         {
-            puts("Client: <Connection> to <Server> success.\n");
+            puts("\nClient: <Connection> to <Server> success.");
             break;
         }
 
