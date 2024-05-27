@@ -4,6 +4,8 @@
 #include <openssl/pem.h>
 #include <openssl/evp.h>
 
-EVP_PKEY* DH_privkey();
-unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len);
 void handleErrors();
+EVP_PKEY *DH_privkey();
+unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len);
+EVP_PKEY *DH_derive_pubkey(const char *filename, unsigned char *buffer, uint32_t file_len);
+unsigned char *DH_derive_shared_secret(EVP_PKEY *my_privkey, EVP_PKEY *received_pubkey, size_t *secret_len);

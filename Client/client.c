@@ -167,13 +167,13 @@ void *handshake(int sd)
         pthread_exit(NULL);
     }
 
-    printf("Ricevuta la chiave pubblica dal server: %s\n", DH_pubkeyPEM_s);
+    printf("Ricevuta la chiave pubblica dal server: \n%s\n", DH_pubkeyPEM_s);
 
     /////////////////////////
     // INVIO G^a AL SERVER //
     /////////////////////////
 
-    puts("Procedo con la risposta inviando la chiave pubblica del client al server");
+    puts("Procedo con la risposta inviando la chiave pubblica del client al server.\n\n");
 
     uint32_t DHpubkeyLEN = *len;
 
@@ -188,13 +188,40 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
-    // INVIO G^a AL SERVER
+    // INVIO la chiave AL SERVER
 
     if ((bytes_sent = send(sd, DH_pubkeyPEM_c, *len, 0)) < 0)
     {
         perror("Errore send pubKey al server");
         exit(EXIT_FAILURE);
     }
+
+    // generazione dinamica del file PEM contenente la chiave pubblica del server
+
+    const char *filepath = "ServerPubKey.pem";
+    EVP_PKEY *DHpubKey_s = DH_derive_pubkey(filepath, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
+
+    if (DHpubKey_s == NULL)
+    {
+        perror("Errore nella derivazione della chiave pubblica ricevuta dal server\n");
+        EVP_PKEY_free(DHprivKey);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
+        free(DH_pubkeyPEM_s);
+
+        t_disconnect(sd);
+    }
+
+    ////////////////////////////////////////
+    /// Derivo la chiave di sessione Kab ///
+    ////////////////////////////////////////
+
+    // To retrieve the shared secret’s length after the DH_derive_shared_secret call
+    size_t session_key_len;
+
+    // derivation of the shared secret
+    unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &session_key_len);
+    puts(secret);
 
     return 0;
 }

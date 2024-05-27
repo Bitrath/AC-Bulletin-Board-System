@@ -39,7 +39,7 @@ EVP_PKEY *DH_privkey()
     return NULL;
   }
 
-  if (!EVP_PKEY_keygen(ctx, &my_prvkey))  // generazione chiave privata
+  if (!EVP_PKEY_keygen(ctx, &my_prvkey)) // generazione chiave privata
   {
     perror("Error: private key generation unsuccessful");
     EVP_PKEY_free(dh_params);
@@ -52,12 +52,11 @@ EVP_PKEY *DH_privkey()
   return my_prvkey;
 }
 
-
-/* 
-@function (DH_pub_key): Writes in a (filename).PEM the PUB_KEY derived from (prvKey). 
+/*
+@function (DH_pub_key): Writes in a (filename).PEM the PUB_KEY derived from (prvKey).
 
 @param (filename): where to write the PUB_KEY. It's a (.PEM) filetype.
-@param (prvKey): a Private Key instance, belonging to a (PUk, PRk) key pair. 
+@param (prvKey): a Private Key instance, belonging to a (PUk, PRk) key pair.
 @param (file_len): pointer to the file length.
 
 @return (buffer_pubKey): the PUk of the .PEM file in a string format.
@@ -96,7 +95,8 @@ unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len)
   }
 
   // leggo il file PEM con la chiave pubblica
-  err = fread(buffer_pubKey, 1, (size_t) *file_len, pubkey_PEM);
+  // leggo con fread perche' necessito il formato unsigned char per poter trasmettere al client/server
+  err = fread(buffer_pubKey, 1, (size_t)*file_len, pubkey_PEM);
   if (err < *file_len)
   {
     perror("Errore nella lettura del file PEM");
@@ -106,4 +106,100 @@ unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len)
   }
   fclose(pubkey_PEM);
   return buffer_pubKey;
+}
+
+// deriva la chiave pubblica dal file PEM
+EVP_PKEY *DH_derive_pubkey(const char *filename, unsigned char *buffer, uint32_t file_len)
+{
+
+  // apro un file PEM in scrittura per poter scrivere la chiave pubblica
+  FILE *pubkey_PEM = fopen(filename, "w+");
+  if (!pubkey_PEM)
+  {
+    perror("Errore nell'apertura del file PEM");
+    return NULL;
+  }
+
+  // scrivo la chiave pubblica ricevuta nel file PEM (1 e' la dimensione in byte di ogni elemento del buffer)
+  uint32_t err = fwrite(buffer, 1, file_len, pubkey_PEM);
+  if (err < file_len)
+  {
+    perror("Errore scrittura del file PEM");
+    fclose(pubkey_PEM);
+    return NULL;
+  }
+
+  fseek(pubkey_PEM, 0, SEEK_SET);
+  // al posto della lettura con fread, uso PEM_read_PUBKEY, in modo tale che restituisca un tipo EVP_KEY *
+  EVP_PKEY *received_pubkey = PEM_read_PUBKEY(pubkey_PEM, NULL, NULL, NULL);
+  
+  if (received_pubkey == NULL)
+  {
+    perror("Errore nella lettura della chiave pubblica ricevuta");
+    fclose(pubkey_PEM);
+    return NULL;
+  }
+  fclose(pubkey_PEM);
+
+  return received_pubkey;
+}
+
+unsigned char *DH_derive_shared_secret(EVP_PKEY *privkey, EVP_PKEY *received_pubkey, size_t *secret_len)
+{
+
+  EVP_PKEY *peer_pubkey;
+  unsigned char *secret;
+  uint32_t err;
+
+  // Initializing shared secret derivation context
+  EVP_PKEY_CTX *ctx_drv = EVP_PKEY_CTX_new(privkey, NULL);
+
+  // Initializes a context for Diffie-Hellman secret derivation. Returns 1 on success.
+  err = EVP_PKEY_derive_init(ctx_drv);
+
+  if (err != 1)
+  {
+    EVP_PKEY_CTX_free(ctx_drv);
+    perror("Errore nell'init del ctx del segreto DH");
+    return NULL;
+  }
+
+  // Sets the peer’s public key for Diffie-Hellman secret derivation. Returns 1 on success.
+  err = EVP_PKEY_derive_set_peer(ctx_drv, received_pubkey);
+
+  if (err != 1)
+  {
+    EVP_PKEY_CTX_free(ctx_drv);
+    perror("Errore nel set del peer della pubKey per la derivazione del segreto DH");
+    return NULL;
+  }
+
+  // Sets the maximum size of the Diffie-Hellman shared secret to be derived in *secretlen. Returns 1 on success
+
+  err = EVP_PKEY_derive(ctx_drv, NULL, secret_len);
+
+  if (err != 1)
+  {
+    EVP_PKEY_CTX_free(ctx_drv);
+    perror("Errore nella derivazione dello spazio massimo del segreto DH");
+    return NULL;
+  }
+
+  secret = (unsigned char *)malloc(*secret_len);
+
+  if (!secret)
+  {
+    EVP_PKEY_CTX_free(ctx_drv);
+    perror("Errore malloc");
+    return NULL;
+  }
+  err = EVP_PKEY_derive(ctx_drv, secret, secret_len);
+
+  if (err != 1)
+  {
+    EVP_PKEY_CTX_free(ctx_drv);
+    return NULL;
+  }
+  EVP_PKEY_CTX_free(ctx_drv);
+  return secret;
 }

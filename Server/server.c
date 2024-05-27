@@ -104,9 +104,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
                     Questa funzione returnera' la chiave di sessione (segreto condiviso)
     */
 
-    /* ------------------------------------
+    /* --------------------------------
        1) SCAMBIO NONCE CON IL CLIENT
-       ------------------------------------ */
+       -------------------------------- */
 
     // --- RICEZIONE DEL NONCE DAL CLIENT ---
 
@@ -234,15 +234,6 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         exit(EXIT_FAILURE);
     }
 
-    // Ricezione della lunghezza della chiave pubblica del client
-    bytes_received = recv(ns, DH_pubkeyLEN_c, sizeof(uint32_t), 0);
-    if (bytes_received <= 0)
-    {
-        perror("Errore recv lunghezza della chiave pubblica");
-        close(ns);
-        exit(EXIT_FAILURE);
-    }
-
     // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
 
     unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
@@ -264,9 +255,36 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         pthread_exit(NULL);
     }
 
-    printf("Ricevuta la chiave pubblica dal client: %s\n", DH_pubkeyPEM_c);
+    printf("Ricevuta la chiave pubblica dal client:\n %s\n", DH_pubkeyPEM_c);
 
-    return DH_pubkeyPEM_s; // da sostituire con la chiave di sessione Kab
+    // generazione dinamica del file PEM contenente la chiave pubblica del client
+
+    const char *filepath = "ClientPubKey.pem";
+    EVP_PKEY *DHpubKey_c = DH_derive_pubkey(filepath, DH_pubkeyPEM_c, *DH_pubkeyLEN_c);
+
+    if (DHpubKey_c == NULL)
+    {
+        perror("Errore nella derivazione della chiave pubblica ricevuta dal client\n");
+        EVP_PKEY_free(DHprivKey);
+        free(DH_pubkeyPEM_s);
+        free(DH_pubkeyLEN_c);
+        free(DH_pubkeyPEM_c);
+
+        t_disconnect(ns);
+    }
+
+    ////////////////////////////////////////
+    /// Derivo la chiave di sessione Kab ///
+    ////////////////////////////////////////
+
+    // To retrieve the shared secret’s length after the DH_derive_shared_secret call
+    size_t session_key_len;
+
+    // derivation of the shared secret
+    unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &session_key_len);
+    puts(secret);
+
+    return secret; // TEMPORANEO
 }
 
 void *secureConnection(void *old_sd)
