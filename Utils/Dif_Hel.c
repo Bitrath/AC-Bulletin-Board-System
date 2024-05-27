@@ -1,5 +1,10 @@
 #include "Dif_Hel.h"
 
+/*
+@function (DH_privkey): Derivation of a Private Key to use in the Diffie-Hellman protocol.
+
+@return (my_prvkey): the private key.
+*/
 EVP_PKEY *DH_privkey()
 {
   // (dh_params): a set of DH parameters, or a pair of DH public/private keys
@@ -89,7 +94,7 @@ unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len)
   unsigned char *buffer_pubKey = (unsigned char *)malloc((size_t)*file_len);
   if (!buffer_pubKey)
   {
-    perror("Errore nella creazione del buffer_pubKey");
+    perror("DH Error: Failed to generate the buffer_pubKey\n");
     fclose(pubkey_PEM);
     return NULL;
   }
@@ -99,7 +104,7 @@ unsigned char *DH_pub_key(char *filename, EVP_PKEY *prvKey, uint32_t *file_len)
   err = fread(buffer_pubKey, 1, (size_t)*file_len, pubkey_PEM);
   if (err < *file_len)
   {
-    perror("Errore nella lettura del file PEM");
+    perror("DH Error: Unable to read PEM File\n");
     fclose(pubkey_PEM);
     free(buffer_pubKey);
     return NULL;
@@ -116,7 +121,7 @@ EVP_PKEY *DH_derive_pubkey(const char *filename, unsigned char *buffer, uint32_t
   FILE *pubkey_PEM = fopen(filename, "w+");
   if (!pubkey_PEM)
   {
-    perror("Errore nell'apertura del file PEM");
+    perror("DH Error: Unable to read PEM File\n");
     return NULL;
   }
 
@@ -124,7 +129,7 @@ EVP_PKEY *DH_derive_pubkey(const char *filename, unsigned char *buffer, uint32_t
   uint32_t err = fwrite(buffer, 1, file_len, pubkey_PEM);
   if (err < file_len)
   {
-    perror("Errore scrittura del file PEM");
+    perror("DH Error: Unable to write on PEM File\n");
     fclose(pubkey_PEM);
     return NULL;
   }
@@ -135,7 +140,7 @@ EVP_PKEY *DH_derive_pubkey(const char *filename, unsigned char *buffer, uint32_t
   
   if (received_pubkey == NULL)
   {
-    perror("Errore nella lettura della chiave pubblica ricevuta");
+    perror("DH Error: Failed at reading the received PubKey\n");
     fclose(pubkey_PEM);
     return NULL;
   }
@@ -160,7 +165,7 @@ unsigned char *DH_derive_shared_secret(EVP_PKEY *privkey, EVP_PKEY *received_pub
   if (err != 1)
   {
     EVP_PKEY_CTX_free(ctx_drv);
-    perror("Errore nell'init del ctx del segreto DH");
+    perror("DH Error: Failure at CTX initialization of the DH secret\n");
     return NULL;
   }
 
@@ -170,7 +175,7 @@ unsigned char *DH_derive_shared_secret(EVP_PKEY *privkey, EVP_PKEY *received_pub
   if (err != 1)
   {
     EVP_PKEY_CTX_free(ctx_drv);
-    perror("Errore nel set del peer della pubKey per la derivazione del segreto DH");
+    perror("DH Error: Failure at the DH Secret derivation step, located inside the PubKey Peer Set.\n ");
     return NULL;
   }
 
@@ -181,7 +186,7 @@ unsigned char *DH_derive_shared_secret(EVP_PKEY *privkey, EVP_PKEY *received_pub
   if (err != 1)
   {
     EVP_PKEY_CTX_free(ctx_drv);
-    perror("Errore nella derivazione dello spazio massimo del segreto DH");
+    perror("DH Error: Failure to allocate memory for the DH Secret\n");
     return NULL;
   }
 
@@ -190,7 +195,7 @@ unsigned char *DH_derive_shared_secret(EVP_PKEY *privkey, EVP_PKEY *received_pub
   if (!secret)
   {
     EVP_PKEY_CTX_free(ctx_drv);
-    perror("Errore malloc");
+    perror("DH Error: Malloc failure.");
     return NULL;
   }
   err = EVP_PKEY_derive(ctx_drv, secret, secret_len);

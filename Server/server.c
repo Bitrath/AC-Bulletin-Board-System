@@ -282,7 +282,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &session_key_len);
-    puts(secret);
+    //puts(secret);
 
     return secret; // TEMPORANEO
 }
