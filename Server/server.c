@@ -195,7 +195,6 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     printf("Creata la chiave pubblica del server: %s\n", DH_pubkeyPEM_s);
 
     uint32_t DHpubkeyLEN = *len;
-    // EVP_PKEY_free(DHpubKey); ---> inutile ??
 
     // Invia la lunghezza della chiave pubblica al CLIENT
     bytes_sent = send(ns, len, sizeof(uint32_t), 0);
@@ -236,7 +235,8 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
 
-    unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
+    // unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
+    unsigned char *DH_pubkeyPEM_c = malloc(DH_pubkeyLEN_c);
     if (!DH_pubkeyPEM_c)
     {
         perror("Errore allocazione memoria per la chiave pubblica");
@@ -246,8 +246,8 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // RICEVO G^b DAL SERVER
 
-    bytes_received = recv(ns, DH_pubkeyPEM_c, *len, 0);
-
+    // bytes_received = recv(ns, DH_pubkeyPEM_c, *len, 0);
+    bytes_received = recv(ns, DH_pubkeyPEM_c, *DH_pubkeyLEN_c, 0);
     if (bytes_received < 0)
     {
         perror("Errore recv pubK del server");
@@ -283,7 +283,6 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &session_key_len);
     puts(secret); // --- TEST ---
-
 
     EVP_PKEY_free(DHpubKey_c);
     EVP_PKEY_free(DHprivKey);

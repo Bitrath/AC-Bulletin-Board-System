@@ -100,7 +100,7 @@ void *handshake(int sd)
     printf("Nonce del server ricevuto: ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
-        printf("%x ", nonce_s[i]); // %x perche' e' in bytes
+        printf("%x ", nonce_s[i]); // %x perche' lo voglio in hexadecimal
     }
     puts("");
 
@@ -148,7 +148,9 @@ void *handshake(int sd)
 
     // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
 
-    unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
+    // unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
+    unsigned char *DH_pubkeyPEM_s = malloc(DH_pubkeyLEN_s);
+
     if (!DH_pubkeyPEM_s)
     {
         perror("Errore allocazione memoria per la chiave pubblica");
@@ -158,7 +160,8 @@ void *handshake(int sd)
 
     // RICEVO G^b DAL SERVER
 
-    bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
+    // bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
+    bytes_received = recv(sd, DH_pubkeyPEM_s, *DH_pubkeyLEN_s, 0);
 
     if (bytes_received < 0)
     {
