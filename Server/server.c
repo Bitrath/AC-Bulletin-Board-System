@@ -35,7 +35,7 @@ void handler(int signo)
 void t_disconnect(int sd)
 {
     close(sd);
-    puts("Client Disconnected.");
+    puts("\n-----(Client Disconnected)-----\n");
     pthread_exit(NULL);
 }
 
@@ -48,7 +48,7 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
 
     if (bytes_rcv < 0)
     {
-        perror("Errore recv");
+        perror("SERVER Error: client_control() -> recv() failure.\n");
         close(ns);
         pthread_exit(NULL);
     }
@@ -63,7 +63,7 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
                                                         // e con solo parole cercate intere (-w)
                                                         // gli '' servono per confermare una
                                                         // corrispondenza esatta
-    printf("Nome utente: ");
+    printf("\nUsername: ");
     for (size_t i = 0; i < user_len; ++i)
     {
         printf("%c", user[i]);
@@ -75,18 +75,18 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
 
     if (result == 0)
     {
-        puts("Utente presente, login in corso...");
+        puts("\nServer: <Client Username> in <Server List>. Login...");
         return 1;
     }
     else if (result == 256)
     {
-        puts("L'utente attuale non e' registrato.");
+        puts("\nServer: <Client Username> not in <Server List>. Not registered.");
         t_disconnect(ns);
         return 0;
     }
     else
     {
-        printf("Errore durante l'esecuzione di grep.\n");
+        printf("SERVER Error: client_control() -> grep() failure.\n");
         return 0;
     }
 }
@@ -116,12 +116,12 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     if (bytes_received < 0)
     {
-        perror("Errore recv");
+        perror("SERVER Error: handshake() -> recv() failure.\n");
         close(ns);
         pthread_exit(NULL);
     }
 
-    printf("Nonce del client ricevuto: ");
+    printf("\nServer: <Client Nonce> received.\n-> ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_c[i]); // %x perche' e' in bytes
@@ -136,11 +136,11 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     if (rs != 1)
     {
-        fprintf(stderr, "Errore creazione nonce");
+        fprintf(stderr, "SERVER Error: handhake() -> Server NONCE generation failure.\n");
         exit(EXIT_FAILURE);
     }
 
-    printf("Calcolato il nonce server: ");
+    printf("\nServer: <Server Nonce> cretaion successful.\n-> ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_s[i]);
@@ -148,13 +148,13 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // --- INVIO DEL NONCE SERVER AL CLIENT ---
 
-    puts("\nInvio il nonce del client al server...");
+    puts("\n\nServer: Sending <Server Nonce> to <Client>...");
 
     ssize_t bytes_sent = send(ns, nonce_s, sizeof(nonce_s), 0); // con la rxb non si riesce perchè comunica solo in char
                                                                 // piu' comode la send e rcv
     if (bytes_sent < 0)
     {
-        perror("Errore send nonce al client");
+        perror("SERVER Error: handhake() -> Server NONCE send() to Client failure.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -176,7 +176,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     len = (uint32_t *)malloc(sizeof(uint32_t));
     if (!len)
     {
-        perror("Errore nella malloc");
+        perror("SERVER Error: handhake() -> malloc() failure.\n");
         EVP_PKEY_free(DHprivKey);
         free(len);
         t_disconnect(ns);
@@ -186,13 +186,13 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     if (!DH_pubkeyPEM_s)
     {
-        perror("Errore nella lettura del file contenente la pubKey");
+        perror("SERVER Error: handhake() -> pubKey.pem file READ failure.\n");
         EVP_PKEY_free(DHprivKey);
         free(len);
         t_disconnect(ns);
     }
 
-    printf("Creata la chiave pubblica del server: %s\n", DH_pubkeyPEM_s);
+    printf("\nServer: <Server Public Key> success.\n-> %s\n", DH_pubkeyPEM_s);
 
     uint32_t DHpubkeyLEN = *len;
     // EVP_PKEY_free(DHpubKey); ---> inutile ??
@@ -201,7 +201,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     bytes_sent = send(ns, len, sizeof(uint32_t), 0);
     if (bytes_sent < 0)
     {
-        perror("Errore send lunghezza della chiave pubblica");
+        perror("SERVER Error: handhake() -> pubKey_server length send() failure.\n");
         free(DH_pubkeyPEM_s);
         EVP_PKEY_free(DHprivKey);
         close(ns);
@@ -212,11 +212,11 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     if ((bytes_sent = send(ns, DH_pubkeyPEM_s, DHpubkeyLEN, 0)) < 0)
     {
-        perror("Errore send pubKey al client");
+        perror("SERVER Error: handhake() -> pubKey_server send() failure.\n");
         exit(EXIT_FAILURE);
     }
 
-    puts("Inviata la chiave pubblica dal server.");
+    puts("\nServer: <Server Public Key> to <Client> success.\n");
 
     ///////////////////////////
     // RICEVO G^a DAL CLIENT //
@@ -229,7 +229,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     bytes_received = recv(ns, DH_pubkeyLEN_c, sizeof(uint32_t), 0);
     if (bytes_received <= 0)
     {
-        perror("Errore recv lunghezza della chiave pubblica");
+        perror("SERVER Error: handhake() -> pubKey_client recv() lenght failure.\n");
         close(ns);
         exit(EXIT_FAILURE);
     }
@@ -239,7 +239,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
     if (!DH_pubkeyPEM_c)
     {
-        perror("Errore allocazione memoria per la chiave pubblica");
+        perror("SERVER Error: handhake() -> pubKey memory allocation failure.\n");
         close(ns);
         exit(EXIT_FAILURE);
     }
@@ -250,12 +250,12 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     if (bytes_received < 0)
     {
-        perror("Errore recv pubK del server");
+        perror("SERVER Error: handhake() -> Server pubKey recv() failure.\n");
         close(ns);
         pthread_exit(NULL);
     }
 
-    printf("Ricevuta la chiave pubblica dal client:\n %s\n", DH_pubkeyPEM_c);
+    printf("\nServer: <Client Public Key> received.\n-> %s\n", DH_pubkeyPEM_c);
 
     // generazione dinamica del file PEM contenente la chiave pubblica del client
 
@@ -264,7 +264,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     if (DHpubKey_c == NULL)
     {
-        perror("Errore nella derivazione della chiave pubblica ricevuta dal client\n");
+        perror("SERVER Error: handshake() -> Failure to extract client public key.");
         EVP_PKEY_free(DHprivKey);
         free(DH_pubkeyPEM_s);
         free(DH_pubkeyLEN_c);
@@ -309,7 +309,7 @@ int main(int argc, char **argv)
 
     if (argc != 2)
     {
-        fprintf(stderr, "Errore argomenti, usa: ./server porta");
+        fprintf(stderr, "\nSERVER Error: too many arguments, write as: ./server port");
         exit(EXIT_FAILURE);
     }
 
@@ -319,7 +319,7 @@ int main(int argc, char **argv)
 
     if (sigaction(SIGCHLD, &sa, NULL) == -1)
     {
-        perror("Errore sigaction");
+        perror("\nSERVER Error: main() -> sigaction() failure");
         exit(EXIT_FAILURE);
     }
 
@@ -330,26 +330,26 @@ int main(int argc, char **argv)
 
     if ((err = getaddrinfo(NULL, argv[1], &hints, &res)) != 0)
     {
-        perror("Errore getaddrinfo");
+        perror("\nSERVER Error: main() -> getaddrinfo() failure");
         exit(EXIT_FAILURE);
     }
 
     if ((sd = socket(res->ai_family, res->ai_socktype, res->ai_protocol)) < 0)
     {
-        perror("Errore socket");
+        perror("\nSERVER Error: main() -> socket() failure.");
         exit(EXIT_FAILURE);
     }
 
     on = 1;
     if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
     {
-        perror("Errore setsockopt");
+        perror("\nSERVER Error: main() -> setsockopt() failure.");
         exit(EXIT_FAILURE);
     }
 
     if (bind(sd, res->ai_addr, res->ai_addrlen) < 0)
     {
-        perror("Errore bind");
+        perror("\nSERVER Error: main() -> bind() failure.");
         exit(EXIT_FAILURE);
     }
 
@@ -357,23 +357,23 @@ int main(int argc, char **argv)
 
     if (listen(sd, SOMAXCONN) < 0)
     {
-        perror("Errore listen");
+        perror("\nSERVER Error: main() -> listen() failure.");
         exit(EXIT_FAILURE);
     }
 
     for (;;)
     {
-        puts("Server in ascolto...");
+        puts("\nServer: listening for <Client>...");
 
         if ((*ns = accept(sd, NULL, NULL)) < 0)
         {
-            perror("Errore accept");
+            perror("\nSERVER Error: main() -> accept() failure.");
             exit(EXIT_FAILURE);
         }
 
         if (pthread_create(&t_id, NULL, secureConnection, (void *)ns))
         { // crea un nuovo thread che gestisce il socket client-server
-            puts("Errore creazione del thread");
+            puts("\nSERVER Error: main() -> pthread_create() failure.");
             close(*ns);
             close(sd);
             free(ns);

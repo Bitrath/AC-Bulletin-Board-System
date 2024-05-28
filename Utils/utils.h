@@ -6,6 +6,7 @@
 ssize_t write_all(int fd, const void *vptr, size_t n);
 ssize_t read_all(int fd, const void *vptr, size_t n);
 int portable_sendfile(int fd, int ns);
+int fresh_nonce(unsigned char *nc);
 
 #endif /* UNIFE_UTILS_H */
 

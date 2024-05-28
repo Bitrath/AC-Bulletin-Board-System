@@ -114,8 +114,7 @@ void *handshake(int sd)
 
     EVP_PKEY *DHprivKey = DH_privkey();
 
-    uint32_t *len;
-    len = (uint32_t *)malloc(sizeof(uint32_t));
+    uint32_t *len = (uint32_t *)malloc(sizeof(uint32_t));
 
     if (!len)
     {
@@ -149,11 +148,16 @@ void *handshake(int sd)
     }
 
     // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
-
+    // (Nico non possiamo allocarla a caso. Dobbiamo mandare la length dal server!)
     unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
     if (!DH_pubkeyPEM_s)
     {
         perror("CLIENT Error: handshake() -> Pub Key memory allocation failure.\n");
+        remove("./dh_PUBKEY_client.pem");
+        EVP_PKEY_free(DHprivKey);
+        free(nonce_c);
+        free(DH_pubkeyPEM_s);
+        free(bytes_received);
         close(sd);
         exit(EXIT_FAILURE);
     }
@@ -166,7 +170,7 @@ void *handshake(int sd)
 
     if (bytes_received < 0)
     {
-        perror("CLIENT Error: handshake() -> Server PubKey recv(9 failure.\n");
+        perror("CLIENT Error: handshake() -> Server PubKey recv() failure.\n");
         close(sd);
         pthread_exit(NULL);
     }

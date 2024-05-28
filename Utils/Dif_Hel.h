@@ -17,3 +17,5 @@ unsigned char *DH_derive_shared_secret(EVP_PKEY *my_privkey, EVP_PKEY *received_
 
 // (CLIENT COMPILE) gcc -o client client.c ../Utils/Dif_Hel.c -lssl -lcrypto -lpthread
 // (SERVER COMPILE) gcc -o server server.c ../Utils/Dif_Hel.c -lssl -lcrypto -lpthread
+// (SERVER2 COMPILE) gcc -o server2 server2.c ../Utils/Dif_Hel.c ../Utils/utils.c -lssl -lcrypto -lpthread
+// (CLIENT2 COMPILE) gcc -o client2 client2.c ../Utils/Dif_Hel.c ../Utils/utils.c -lssl -lcrypto -lpthread

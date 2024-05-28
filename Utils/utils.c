@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <openssl/rand.h>
 
 /* For sendfile */
 #if __APPLE__
@@ -90,4 +91,9 @@ int portable_sendfile(int fd, int ns)
 	}
 	return nread;
 #endif
+}
+
+int fresh_nonce(unsigned char *nc){
+        RAND_poll();
+        return RAND_bytes(nc, sizeof(nc));
 }
