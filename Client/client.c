@@ -40,7 +40,7 @@ void client_control(int sd)
         fprintf(stderr, "Errore fgets user");
         exit(EXIT_FAILURE);
     }
-    else if (strlen(user) >= MAX_USER_CHAR - 1) // informati su strnlen
+    else if (strlen(user) >= MAX_USER_CHAR - 1)
     {
         fprintf(stderr, "L'username inserito e' troppo lungo. (> 128 char)\n");
         exit(EXIT_FAILURE);
@@ -198,7 +198,7 @@ void *handshake(int sd)
 
     // generazione dinamica del file PEM contenente la chiave pubblica del server
 
-    const char *filepath = "ServerPubKey.pem";
+    const char *filepath = "ServerPubKey.pem"; // DA CAMBIARE E IMPLEMENTARE L'IMMISSIONE DEL NOME UTENTE
     EVP_PKEY *DHpubKey_s = DH_derive_pubkey(filepath, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
 
     if (DHpubKey_s == NULL)
@@ -221,7 +221,11 @@ void *handshake(int sd)
 
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &session_key_len);
-    puts(secret);
+
+    puts(secret); // --- TEST ---
+
+    EVP_PKEY_free(DHpubKey_s);
+    EVP_PKEY_free(DHprivKey);
 
     return 0;
 }
@@ -236,8 +240,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Errore argomenti, usa: ./client host porta");
         exit(EXIT_FAILURE);
     }
-
-    signal(SIGCHLD, SIG_IGN);
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;

@@ -282,7 +282,11 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &session_key_len);
-    puts(secret);
+    puts(secret); // --- TEST ---
+
+
+    EVP_PKEY_free(DHpubKey_c);
+    EVP_PKEY_free(DHprivKey);
 
     return secret; // TEMPORANEO
 }
@@ -302,7 +306,7 @@ void *secureConnection(void *old_sd)
 
 int main(int argc, char **argv)
 {
-    int sd, err, pid, status, on, *ns = (int *)malloc(sizeof(int));
+    int sd, err, on, *ns = (int *)malloc(sizeof(int));
     struct addrinfo hints, *res;
     struct sigaction sa;
     pthread_t t_id;
