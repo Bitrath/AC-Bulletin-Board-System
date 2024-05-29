@@ -58,6 +58,8 @@ void *handshake(int sd)
 {
     // Handshake Setup 
 
+    printf("--- CLIENT HANDSHAKE with SERVER ----\n");
+
     /* ------------------------------------
        1) SCAMBIO NONCE CON IL SERVER
        ------------------------------------ */
@@ -71,12 +73,12 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
-    printf("\nClient: <Client Nonce> success.\n-> ");
+    printf("(CH1): <Client Nonce> success.\n-> ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_c[i]);
     }
-    puts("\nClient: <Client Nonce> to <Server>");
+    printf("(CH1): <Client Nonce> to <Server>");
 
     ssize_t bytes_sent = send(sd, nonce_c, sizeof(nonce_c), 0); // con la rxb non si riesce perchè comunica solo in char
                                                                 // piu' comode la send e rcv
@@ -98,7 +100,7 @@ void *handshake(int sd)
         pthread_exit(NULL);
     }
 
-    printf("\nClient: <Server Nonce> received. \n->  ");
+    printf("(CH1)): <Server Nonce> received. \n->  ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_s[i]); // %x perche' lo voglio in hexadecimal
@@ -126,7 +128,7 @@ void *handshake(int sd)
 
     unsigned char *DH_pubkeyPEM_c = DH_pub_key("dh_PUBKEY_client.pem", DHprivKey, len);
 
-    printf("\nClient: <Client Public Key> creation success.\n-> %s\n", DH_pubkeyPEM_c);
+    printf("(CH2): <Client Public Key> creation success.\n-> %s", DH_pubkeyPEM_c);
 
     if (!DH_pubkeyPEM_c)
     {
@@ -159,6 +161,7 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
+    // 3) Receive Server PubKey 
     // RICEVO G^b DAL SERVER
 
     // bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
@@ -171,13 +174,13 @@ void *handshake(int sd)
         pthread_exit(NULL);
     }
 
-    printf("\nClient: <Server Public Key> reception success.\n-> %s\n", DH_pubkeyPEM_s);
+    printf("(CH3): <Server Public Key> reception success.\n-> %s", DH_pubkeyPEM_s);
 
     /////////////////////////
     // INVIO G^a AL SERVER //
     /////////////////////////
 
-    puts("\nClient: NEXT STEP -> <Client Public Key> to <Server>\n");
+    printf("(CH3): <Client Public Key> to <Server>.\n");
 
     uint32_t DHpubkeyLEN = *len;
 
@@ -217,7 +220,7 @@ void *handshake(int sd)
     }
 
     ////////////////////////////////////////
-    /// Derivo la chiave di sessione Kab ///
+    /// 4) Derivo la chiave di sessione Kab ///
     ////////////////////////////////////////
 
     // To retrieve the shared secret’s length after the DH_derive_shared_secret call
@@ -228,13 +231,13 @@ void *handshake(int sd)
 
     //puts(secret); 
     // --- TEST ---
-    printf("Shared Secret: %hhu \n", *secret);
+    printf("(CH4): <Client Secret>\n-> %hhu \n", *secret);
     for (int i = 0; i < *len; i++) {
         //printf("%x ", secret[i]);
         //printf("%u ", secret[i]);
         //printf("%c ", secret[i]);
     }
-    printf("\n");
+    printf("--- END CLIENT HANDSHAKE with SERVER ---");
 
     EVP_PKEY_free(DHpubKey_s);
     EVP_PKEY_free(DHprivKey);
@@ -272,7 +275,7 @@ int main(int argc, char **argv)
 
         if (connect(sd, ptr->ai_addr, ptr->ai_addrlen) == 0)
         {
-            puts("\nClient: <Connection> to <Server> success.");
+            puts("(C0): <Connection> to <Server> success.");
             break;
         }
 
