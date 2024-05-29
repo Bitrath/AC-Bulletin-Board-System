@@ -149,8 +149,7 @@ void *handshake(int sd)
     // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
 
     // unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
-    unsigned char *DH_pubkeyPEM_s = malloc(DH_pubkeyLEN_s);
-
+    unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
     if (!DH_pubkeyPEM_s)
     {
         perror("Errore allocazione memoria per la chiave pubblica");
@@ -225,11 +224,17 @@ void *handshake(int sd)
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &session_key_len);
 
-    puts(secret); // --- TEST ---
+    //puts(secret); 
+    // --- TEST ---
+    for (int i = 0; i < *len; i++) {
+        printf("%x ", secret[i]);
+        //printf("%u ", secret[i]);
+        //printf("%c ", secret[i]);
+    }
+    printf("\n");
 
     EVP_PKEY_free(DHpubKey_s);
     EVP_PKEY_free(DHprivKey);
-
     return 0;
 }
 
