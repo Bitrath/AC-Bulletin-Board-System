@@ -236,7 +236,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
     //unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc((*len + 1) * sizeof(unsigned char));
-    unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc(*len);
+    unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc(*DH_pubkeyLEN_c);
     if (!DH_pubkeyPEM_c)
     {
         perror("SERVER Error: (SH3) cPuK_malloc() failure.\n");
@@ -277,17 +277,28 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     ////////////////////////////////////////
 
     // To retrieve the shared secret’s length after the DH_derive_shared_secret call
-    size_t session_key_len;
+    size_t shared_secret_len;
 
     // derivation of the shared secret
-    unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &session_key_len);
-    //puts(secret); // --- TEST ---printf("\nServer: <Server Secret>: ");
-    printf("(SH4): <Server Secret>\n-> %hhu ", *secret);
-    for (int i = 0; i < *len; i++) {
-        //printf("%x ", secret[i]);
-        //printf("%u ", secret[i]);
-        //printf("%c ", secret[i]);
+    unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &shared_secret_len);
+    if(!secret){
+        perror("SERVER Error: (SH4) shared_secret_creation() failure.\n");
+        close(ns);
+        exit(EXIT_FAILURE);
     }
+    //puts(secret); // --- TEST ---
+    printf("(SH4): <Server Secret>\n-> %hhu ", *secret);
+
+    // 5) Session Key
+    unsigned int *session_key_length = 0;
+    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, session_key_length);
+    if (!session_key){
+        perror("SERVER Error: (SH5) create_session_key( failure.\n");
+        close(ns);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("(SH5): <Server Session Key>\n-> ");
 
     EVP_PKEY_free(DHpubKey_c);
     EVP_PKEY_free(DHprivKey);

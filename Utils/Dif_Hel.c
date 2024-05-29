@@ -203,3 +203,42 @@ unsigned char *DH_derive_shared_secret(EVP_PKEY *privkey, EVP_PKEY *received_pub
   EVP_PKEY_CTX_free(ctx_drv);
   return secret;
 }
+
+unsigned char *create_session_key(const EVP_MD* hash_type, const EVP_CIPHER* cipher_type, unsigned char* s, size_t s_len, unsigned int* hash_len){
+  // hash = SHA256(secret);
+  unsigned char *hash = (unsigned char*)malloc(EVP_MD_size(EVP_sha256()));
+  if(!hash){
+    return NULL;
+  }
+  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  if(!ctx){
+    //free(hash);
+    return NULL;
+  }
+  if(!EVP_DigestInit(ctx, EVP_sha256())){
+    EVP_MD_CTX_free(ctx);
+  }
+  if(!EVP_DigestUpdate(ctx, s, s_len)){
+    EVP_MD_CTX_free(ctx);
+    return NULL;
+  }
+  if(!EVP_DigestFinal(ctx, hash, hash_len)){
+    EVP_MD_CTX_free(ctx);
+    return NULL;
+  }
+  EVP_MD_CTX_free(ctx);
+
+  // k_ab_AES128 = hash[ AES128_len || ... ];
+  if(*hash_len > (unsigned int)EVP_CIPHER_key_length(EVP_aes_128_gcm())){
+    unsigned char *sk = (unsigned char*)malloc(EVP_CIPHER_key_length(EVP_aes_128_gcm()));
+    if(!sk){
+      free(hash);
+      return NULL;
+    }
+    memcpy(sk, hash, EVP_CIPHER_key_length(EVP_aes_128_gcm()));
+    free(hash);
+    *hash_len = EVP_CIPHER_key_length(EVP_aes_128_gcm());
+    return sk;
+  }
+  return hash;
+}

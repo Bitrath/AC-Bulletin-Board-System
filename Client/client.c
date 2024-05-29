@@ -153,7 +153,7 @@ void *handshake(int sd)
 
     // (NO) unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
     // (OK) unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
-    unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc(*len);
+    unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc(*DH_pubkeyLEN_s);
     if (!DH_pubkeyPEM_s)
     {
         perror("CLIENT Error: handshake() -> Pub Key memory allocation failure.\n");
@@ -224,19 +224,29 @@ void *handshake(int sd)
     ////////////////////////////////////////
 
     // To retrieve the shared secret’s length after the DH_derive_shared_secret call
-    size_t session_key_len;
+    size_t shared_secret_len;
 
     // derivation of the shared secret
-    unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &session_key_len);
+    unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &shared_secret_len);
 
     //puts(secret); 
     // --- TEST ---
     printf("(CH4): <Client Secret>\n-> %hhu \n", *secret);
-    for (int i = 0; i < *len; i++) {
+    /*for (int i = 0; i < *len; i++) {
         //printf("%x ", secret[i]);
         //printf("%u ", secret[i]);
         //printf("%c ", secret[i]);
+    }*/
+
+    // 5) Session Key
+    unsigned int *session_key_length = 0;
+    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, session_key_length);
+    if (!session_key){
+        perror("CLIENT Error: (CH5) create_session_key() failure.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
     }
+    printf("(CH5): <Client Session Key>\n-> ");
     printf("--- END CLIENT HANDSHAKE with SERVER ---");
 
     EVP_PKEY_free(DHpubKey_s);
