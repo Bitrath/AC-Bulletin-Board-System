@@ -283,8 +283,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &session_key_len);
     //puts(secret); // --- TEST ---printf("\nServer: <Server Secret>: ");
+    printf("secret: %hhu \n", *secret);
     for (int i = 0; i < *len; i++) {
-        printf("%x ", secret[i]);
+        //printf("%x ", secret[i]);
         //printf("%u ", secret[i]);
         //printf("%c ", secret[i]);
     }
