@@ -147,8 +147,8 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     puts("\n(SH1): <Server Nonce> to <Client>.");
 
-    ssize_t bytes_sent = send(ns, nonce_s, sizeof(nonce_s), 0); // con la rxb non si riesce perchè comunica solo in char
-                                                                // piu' comode la send e rcv
+    ssize_t bytes_sent = send(ns, nonce_s, sizeof(nonce_s), 0);
+
     if (bytes_sent < 0)
     {
         perror("SERVER Error: (SH1) server_nonce_send() failure.\n");
@@ -213,9 +213,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     puts("(SH2): <Server Public Key> to <Client>.");
 
-    /* ------------------------------------
+    /* -----------------------------
        3) Chiave Pubblica da Client
-       ------------------------------------ */
+       ----------------------------- */
     ///////////////////////////
     // RICEVO G^a DAL CLIENT //
     ///////////////////////////
@@ -235,7 +235,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
 
     // unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
-    //unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc((*len + 1) * sizeof(unsigned char));
+    // unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc((*len + 1) * sizeof(unsigned char));
     unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc(*DH_pubkeyLEN_c);
     if (!DH_pubkeyPEM_c)
     {
@@ -272,40 +272,44 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         t_disconnect(ns);
     }
 
-    ////////////////////////////////////////
+    ///////////////////////////////////////////
     /// 4) Derivo la chiave di sessione Kab ///
-    ////////////////////////////////////////
+    ///////////////////////////////////////////
 
     // To retrieve the shared secret’s length after the DH_derive_shared_secret call
     size_t shared_secret_len;
 
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_c, &shared_secret_len);
-    if(!secret){
+    if (!secret)
+    {
         perror("SERVER Error: (SH4) shared_secret_creation() failure.\n");
         close(ns);
         exit(EXIT_FAILURE);
     }
-    //puts(secret); // --- TEST ---
-    printf("(SH4): <Server Secret>\n-> %hhu ", *secret);
+
+    printf("(SH4): <Server Secret>\n-> %hhu \n", *secret);
 
     // 5) Session Key
-    unsigned int *session_key_length = 0;
-    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, session_key_length);
-    if (!session_key){
-        perror("SERVER Error: (SH5) create_session_key( failure.\n");
+    // k_len comes as an argument of the handshake function
+    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, k_len);
+
+    if (!session_key)
+    {
+        perror("SERVER Error: (SH5) create_session_key (failure).\n");
+        free(secret);
         close(ns);
         exit(EXIT_FAILURE);
     }
-
-    printf("(SH5): <Server Session Key>\n-> ");
-
+    free(secret);
     EVP_PKEY_free(DHpubKey_c);
     EVP_PKEY_free(DHprivKey);
 
-    printf("--- END SERVER HANDSHAKE (%u)----\n", ns);
+    printf("(SH5): <Server Session Key>\n-> %hhu\n", *session_key);
 
-    return secret; // TEMPORANEO
+    printf("--- END SERVER HANDSHAKE (%u) ---\n", ns);
+
+    return session_key; 
 }
 
 void *secureConnection(void *old_sd)
@@ -362,6 +366,7 @@ int main(int argc, char **argv)
     }
 
     on = 1;
+
     if (setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
     {
         perror("Errore setsockopt");

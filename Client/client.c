@@ -56,7 +56,7 @@ void client_control(int sd)
 
 void *handshake(int sd)
 {
-    // Handshake Setup 
+    // Handshake Setup
 
     printf("--- CLIENT HANDSHAKE with SERVER ----\n");
 
@@ -153,7 +153,7 @@ void *handshake(int sd)
 
     // (NO) unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
     // (OK) unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
-    unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc(*DH_pubkeyLEN_s);
+    unsigned char *DH_pubkeyPEM_s = (unsigned char *)malloc(*DH_pubkeyLEN_s);
     if (!DH_pubkeyPEM_s)
     {
         perror("CLIENT Error: handshake() -> Pub Key memory allocation failure.\n");
@@ -161,7 +161,7 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
-    // 3) Receive Server PubKey 
+    // 3) Receive Server PubKey
     // RICEVO G^b DAL SERVER
 
     // bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
@@ -228,9 +228,14 @@ void *handshake(int sd)
 
     // derivation of the shared secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &shared_secret_len);
-
-    //puts(secret); 
-    // --- TEST ---
+    if (!secret)
+    {
+        perror("CLIENT Error: (SH4) shared_secret_creation() failure.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+    // puts(secret);
+    //  --- TEST ---
     printf("(CH4): <Client Secret>\n-> %hhu \n", *secret);
     /*for (int i = 0; i < *len; i++) {
         //printf("%x ", secret[i]);
@@ -240,18 +245,23 @@ void *handshake(int sd)
 
     // 5) Session Key
     unsigned int *session_key_length = 0;
-    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, session_key_length);
-    if (!session_key){
+    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, &session_key_length);
+    if (!session_key)
+    {
         perror("CLIENT Error: (CH5) create_session_key() failure.\n");
         close(sd);
         exit(EXIT_FAILURE);
     }
-    printf("(CH5): <Client Session Key>\n-> ");
-    printf("--- END CLIENT HANDSHAKE with SERVER ---");
 
+    free(secret);
     EVP_PKEY_free(DHpubKey_s);
     EVP_PKEY_free(DHprivKey);
-    return 0;
+
+    printf("(CH5): <Client Session Key\n-> %hhu\n", *session_key);
+    printf("--- END CLIENT HANDSHAKE with SERVER ---");
+
+    
+    return session_key;
 }
 
 int main(int argc, char **argv)
