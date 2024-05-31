@@ -276,7 +276,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     /// 4) Derivo la chiave di sessione Kab ///
     ///////////////////////////////////////////
 
-    // To retrieve the shared secret’s length after the DH_derive_shared_secret call
+    // To retrieve the shared secret's length after the DH_derive_shared_secret call
     size_t shared_secret_len;
 
     // derivation of the shared secret
@@ -307,7 +307,12 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     printf("(SH5): <Server Session Key>\n-> %hhu\n", *session_key);
 
+    // 6) Server 
+    printf("(SH5): <Server Session Key>\n-> %hhu\n", *session_key);
+
     printf("--- END SERVER HANDSHAKE (%u) ---\n", ns);
+
+
 
     return session_key; 
 }
@@ -409,3 +414,17 @@ int main(int argc, char **argv)
     close(sd);
     return 0;
 }
+
+/*
+    Client  |||  Server
+    
+M1: {nonce_c} -> {}
+M2: {} <- {nonce_s}
+M3: {} <- {s_DH_PUk_len}
+M4: {} <- {s_DH_PUk}
+M5: {s_DH_PUk_len} -> {}
+M6: {s_DH_PUk} -> {}
+M7: {} <- {E(H(nonce_c + s_DH_PUk), s_PRk_rsa)}
+M8: {} <- {s_certificate}
+M9: {ENVELOPE(nonce_s + c_DH_PUk), E(c_sym_k))} -> {}
+*/
