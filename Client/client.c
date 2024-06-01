@@ -56,210 +56,292 @@ void client_control(int sd)
 
 void *handshake(int sd)
 {
-    // Handshake Setup
+    /* 
+    (CLIENT HANDSHAKE PROTOCOL) 
 
-    printf("--- CLIENT HANDSHAKE with SERVER ----\n");
+    *** (PHASE 1) ***
+    *** EPHEMERAL DIFFIE HELLMAN ***
+    (CH1): [NONCEs] 
+         -> M1 to Server and M2 from Server. 
+    (CH2): [Ephemeral DIFFIE-HELLMAN Setup] 
+         -> <Client DH {PU, PR}> generation,
+    (CH3): [DH PubKey Exchange]
+         A) M3 and M4 receive from Server. {s_DH_PUk_len, s_DH_PUk}
+         B) M5 and M6 to Server. {c_DH_PUk_len, c_DH_PUk}
+    (CH4): [DH Shared Secret]
+         -> Diffie-Hellman Shared Secret Derivation.
+    (CH5): [Session Key Kab]
+         -> Session Key {Kab} Derivation.
 
-    /* ------------------------------------
-       1) SCAMBIO NONCE CON IL SERVER
-       ------------------------------------ */
+    *** (PHASE 2) ***
+    *** SERVER RSA VERIFIICATION ***
 
-    unsigned char nonce_c[NONCE_LEN];
-    RAND_poll();                                   // context init
-    int rc = RAND_bytes(nonce_c, sizeof(nonce_c)); // nonce del client creato con successo
+    *** (PHASE 3) ***
+    *** CLIENT DIGITAL ENVELOPE VERIFICATION ***
+    
+    (HANDSHAKE PROTOCOL MESSAGES)
+        {Client}  <-|->  {Server}
+    M1: {nonce_c} -> {}
+    M2: {} <- {nonce_s}
+    M3: {} <- {s_DH_PUk_len}
+    M4: {} <- {s_DH_PUk}
+    M5: {s_DH_PUk_len} -> {}
+    M6: {s_DH_PUk} -> {}
+    M7: {} <- {E(H(nonce_c + s_DH_PUk), s_PRk_rsa)}
+    M8: {} <- {s_certificate}
+    M9: {ENVELOPE(nonce_s + c_DH_PUk), E(c_sym_k))} -> {}
+    */ 
+
+    printf("--- CLIENT HANDSHAKE with SERVER ----");
+
+    //*** (PHASE 1) ***
+    //*** EPHEMERAL DIFFIE HELLMAN ***
+
+    // --> STEP (CH1)
+    // (CH1): NONCEs Exchange 
+
+    // Client Nonce
+    unsigned char *nonce_c = (unsigned char *)malloc(NONCE_LEN);
+    RAND_poll();                                  
+    int rc = RAND_bytes(nonce_c, NONCE_LEN);
     if (rc != 1)
     {
         fprintf(stderr, "CLIENT Error: Failed to generate fresh nonce.");
+        close(sd);
         exit(EXIT_FAILURE);
     }
 
-    printf("(CH1): <Client Nonce> success.\n-> ");
+    printf("\n(CH1): <Client Nonce> success.\n-> ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_c[i]);
     }
-    printf("(CH1): <Client Nonce> to <Server>");
 
-    ssize_t bytes_sent = send(sd, nonce_c, sizeof(nonce_c), 0); // con la rxb non si riesce perchè comunica solo in char
-                                                                // piu' comode la send e rcv
+    // (CH1): M1{nonce_c} -> Server
+    ssize_t bytes_sent = send(sd, nonce_c, NONCE_LEN, 0);
     if (bytes_sent < 0)
     {
         perror("CLIENT Error: handshake -> send(nonce) failure.\n");
+        free(nonce_c);
+        close(sd);
         exit(EXIT_FAILURE);
     }
-
-    // --- RICEZIONE NONCE DEL SERVER ---
-
-    unsigned char nonce_s[NONCE_LEN];
-    ssize_t bytes_received = recv(sd, nonce_s, sizeof(nonce_s), 0);
-
+    printf("\n(CH1): <Client Nonce> to <Server>");
+    
+    // (CH1): M2{nonce_s} <- Server
+    unsigned char *nonce_s = (unsigned char *)malloc(NONCE_LEN);
+    ssize_t bytes_received = recv(sd, nonce_s, NONCE_LEN, 0);
     if (bytes_received < 0)
     {
         perror("CLIENT Error: handshake -> receive(Server nonce) failure.");
+        free(nonce_c);
         close(sd);
-        pthread_exit(NULL);
-    }
+        exit(EXIT_FAILURE);
+    } 
 
-    printf("(CH1)): <Server Nonce> received. \n->  ");
+    // Server Nonce
+    printf("\n(CH1): <Server Nonce> received. \n->  ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
         printf("%x ", nonce_s[i]); // %x perche' lo voglio in hexadecimal
     }
     puts("");
 
-    /* ------------------------------------
-       2) CREAZIONE CHIAVE PRIVATA E PUBBLICA
-       ------------------------------------ */
+    // --> STEP (CH2)
+    // (CH2): Ephemeral DIFFIE-HELLMAN Client Setup
 
-    // --- CREAZIONE CHIAVE PRIVATA CLIENT ---
-
+    // Client DH_Priv_Key 
     EVP_PKEY *DHprivKey = DH_privkey();
 
-    uint32_t *len;
-    len = (uint32_t *)malloc(sizeof(uint32_t));
-
+    // Client DH_Pub_Key length: memory allocation
+    uint32_t *len = (uint32_t *)malloc(sizeof(uint32_t));
     if (!len)
     {
         perror("CLIENT Error: handshake -> DH_PrivKey malloc() failure\n");
+        free(nonce_c);
         EVP_PKEY_free(DHprivKey);
-        free(len);
-        t_disconnect(sd);
+        close(sd);
+        exit(EXIT_FAILURE);
     }
 
+    // Client DH_Pub_Key
     unsigned char *DH_pubkeyPEM_c = DH_pub_key("dh_PUBKEY_client.pem", DHprivKey, len);
-
-    printf("(CH2): <Client Public Key> creation success.\n-> %s", DH_pubkeyPEM_c);
-
     if (!DH_pubkeyPEM_c)
     {
         perror("CLIENT Error: handshake -> failure when receiving Server PubKey string.");
+        free(nonce_c);
         EVP_PKEY_free(DHprivKey);
         free(len);
-        t_disconnect(sd);
+        close(sd);
+        exit(EXIT_FAILURE);
     }
+    printf("(CH2): <Client Public Key> creation success.\n-> %s", DH_pubkeyPEM_c);
 
+    // --> STEP (CH3)
+    // (CH3): DH Keys Exchange
+
+    // Server DH_Pub_Key length: memory allocation
     uint32_t *DH_pubkeyLEN_s = (uint32_t *)malloc(sizeof(uint32_t));
 
-    // Ricezione della lunghezza della chiave pubblica del server
+    // (CH3): M3{s_DH_PUk_len} <- Server
     bytes_received = recv(sd, DH_pubkeyLEN_s, sizeof(uint32_t), 0);
     if (bytes_received <= 0)
     {
         perror("CLIENT Error: handshake() -> recv() -> Server PukKey length error.\n");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
         close(sd);
         exit(EXIT_FAILURE);
     }
 
-    // Allocazione memoria per la DH_pubkeyPEM_s proveniente dal server
+    /* 
+    (NO) unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
+    (OK) unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
+    bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
+    */
 
-    // (NO) unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
-    // (OK) unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
+    // Server DH_Pub_Key buffer: memory allocation
     unsigned char *DH_pubkeyPEM_s = (unsigned char *)malloc(*DH_pubkeyLEN_s);
     if (!DH_pubkeyPEM_s)
     {
         perror("CLIENT Error: handshake() -> Pub Key memory allocation failure.\n");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
         close(sd);
         exit(EXIT_FAILURE);
     }
 
-    // 3) Receive Server PubKey
-    // RICEVO G^b DAL SERVER
-
-    // bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
+    // (CH3): M4{s_DH_PUk} <- Server [G^b]
     bytes_received = recv(sd, DH_pubkeyPEM_s, *DH_pubkeyLEN_s, 0);
-
     if (bytes_received < 0)
     {
         perror("CLIENT Error: handshake() -> Server PubKey recv(9 failure.\n");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
         close(sd);
-        pthread_exit(NULL);
+        exit(EXIT_FAILURE);
     }
-
     printf("(CH3): <Server Public Key> reception success.\n-> %s", DH_pubkeyPEM_s);
 
-    /////////////////////////
-    // INVIO G^a AL SERVER //
-    /////////////////////////
-
-    printf("(CH3): <Client Public Key> to <Server>.\n");
-
+    // Client DH_Pub_Key Length
     uint32_t DHpubkeyLEN = *len;
 
-    // Invia la lunghezza della chiave pubblica al SERVER
+    // (CH3): M5{c_DH_PUk_len} -> Server
     bytes_sent = send(sd, len, sizeof(uint32_t), 0);
     if (bytes_sent < 0)
     {
         perror("CLIENT Error: handshake() -> Client_PubKey_lenght send() failure.\n");
-        free(DH_pubkeyPEM_s);
+        free(nonce_c);
         EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
+        free(DH_pubkeyPEM_s);
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+    
+    // (CH3): M6{c_DH_PUk} -> Server [G^a]
+    if ((bytes_sent = send(sd, DH_pubkeyPEM_c, *len, 0)) < 0)
+    {
+        perror("CLIENT Error: handshake() -> Client_PubKey send() failure.\n");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
+        free(DH_pubkeyPEM_s);
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+    printf("(CH3): <Client Public Key> to <Server>.\n");
+
+    // (Server_DH_Pub_Key).PEM 
+    const char *filepath = "ServerPubKey.pem"; 
+    EVP_PKEY *DHpubKey_s = DH_derive_pubkey(filepath, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
+    if (DHpubKey_s == NULL)
+    {
+        perror("CLIENT Error: handshake() -> Server_PubKey derivation failure.\n ");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
+        free(DH_pubkeyPEM_s);
         close(sd);
         exit(EXIT_FAILURE);
     }
 
-    // INVIO la chiave AL SERVER
-
-    if ((bytes_sent = send(sd, DH_pubkeyPEM_c, *len, 0)) < 0)
-    {
-        perror("CLIENT Error: handshake() -> Client_PubKey send() failure.\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // generazione dinamica del file PEM contenente la chiave pubblica del server
-
-    const char *filepath = "ServerPubKey.pem"; // DA CAMBIARE E IMPLEMENTARE L'IMMISSIONE DEL NOME UTENTE
-    EVP_PKEY *DHpubKey_s = DH_derive_pubkey(filepath, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
-
-    if (DHpubKey_s == NULL)
-    {
-        perror("CLIENT Error: handshake() -> Server_PubKey derivation failure.\n ");
-        EVP_PKEY_free(DHprivKey);
-        free(DH_pubkeyPEM_c);
-        free(DH_pubkeyLEN_s);
-        free(DH_pubkeyPEM_s);
-
-        t_disconnect(sd);
-    }
-
-    ////////////////////////////////////////
-    /// 4) Derivo la chiave di sessione Kab ///
-    ////////////////////////////////////////
-
-    // To retrieve the shared secret’s length after the DH_derive_shared_secret call
+    // --> STEP (CH4)
+    // (CH4): Diffie-Hellman Shared Secret Derivation
+    
+    // Client Secret Length: To retrieve the shared secret’s length after the DH_derive_shared_secret call
     size_t shared_secret_len;
 
-    // derivation of the shared secret
+    // Client DH Secret
     unsigned char *secret = DH_derive_shared_secret(DHprivKey, DHpubKey_s, &shared_secret_len);
     if (!secret)
     {
         perror("CLIENT Error: (SH4) shared_secret_creation() failure.\n");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
+        free(DH_pubkeyPEM_s);
+        EVP_PKEY_free(DHpubKey_s);
         close(sd);
         exit(EXIT_FAILURE);
     }
-    // puts(secret);
-    //  --- TEST ---
     printf("(CH4): <Client Secret>\n-> %hhu \n", *secret);
-    /*for (int i = 0; i < *len; i++) {
-        //printf("%x ", secret[i]);
-        //printf("%u ", secret[i]);
-        //printf("%c ", secret[i]);
-    }*/
 
-    // 5) Session Key
-    unsigned int *session_key_length = 0;
+    // --> STEP (CH5)
+    // (CH5): Session Key {Kab} Derivation.
+
+    // Client Session Key Length
+    unsigned int skl = 0;
+    unsigned int *session_key_length = &skl;
+
+    // Client Session Key
     unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, &session_key_length);
     if (!session_key)
     {
         perror("CLIENT Error: (CH5) create_session_key() failure.\n");
+        free(nonce_c);
+        EVP_PKEY_free(DHprivKey);
+        free(len);
+        free(DH_pubkeyPEM_c);
+        free(DH_pubkeyLEN_s);
+        free(DH_pubkeyPEM_s);
+        EVP_PKEY_free(DHpubKey_s);
+        free(secret);
         close(sd);
         exit(EXIT_FAILURE);
     }
+    printf("(CH5): <Client Session Key>\n-> %hhu\n", *session_key); 
 
+    // Memory Cleaning
+    free(len);
     free(secret);
-    EVP_PKEY_free(DHpubKey_s);
+    free(DH_pubkeyPEM_c);
+    free(DH_pubkeyPEM_s);
+    free(DH_pubkeyLEN_s);
     EVP_PKEY_free(DHprivKey);
+    EVP_PKEY_free(DHpubKey_s);
 
-    printf("(CH5): <Client Session Key\n-> %hhu\n", *session_key);
+    // *** END (PHASE 1) ***
+
+    // *** BEGIN (PHASE 2) ***
+    
     printf("--- END CLIENT HANDSHAKE with SERVER ---");
-
     
     return session_key;
 }
