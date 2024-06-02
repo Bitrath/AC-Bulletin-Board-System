@@ -56,13 +56,15 @@ unsigned char *SignatureWithRSA(const EVP_MD *hash_type, unsigned char *message,
     return ciphertext;
 }
 
-int VerifySignatureWithRSA(const EVP_MD *hash_type, unsigned char *signature, unsigned int sign_len, EVP_PKEY *rsa_pub_key, unsigned char *to_check, size_t to_check_len)
+int VerifySignatureWithRSA(const EVP_MD *hash_type, unsigned char *signature, uint32_t sign_len, EVP_PKEY *rsa_pub_key, unsigned char *to_check, size_t to_check_len)
 {
+    int result = 0; // Default to failure
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
     if (!ctx)
     {
         return 0;
     }
+    
     if (!EVP_VerifyInit(ctx, hash_type))
     {
         EVP_MD_CTX_free(ctx);
@@ -73,13 +75,14 @@ int VerifySignatureWithRSA(const EVP_MD *hash_type, unsigned char *signature, un
         EVP_MD_CTX_free(ctx);
         return 0;
     }
-    // int r = EVP_DigestUpdate(ctx, to_check, (size_t)to_check_len);
-    int result = EVP_VerifyFinal(ctx, signature, sign_len, rsa_pub_key);
+    
+    result = EVP_VerifyFinal(ctx, signature, (unsigned int)sign_len, rsa_pub_key);
+    EVP_MD_CTX_free(ctx);
+    
     if (result != 1)
     {
-        EVP_MD_CTX_free(ctx);
-        return 0; // False
+        return 0; // Verification failed
     }
-    EVP_MD_CTX_free(ctx);
-    return 1; // True
+    
+    return 1; // Verification succeeded
 }

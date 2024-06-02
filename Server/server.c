@@ -390,7 +390,6 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // Server RSA_Message length: memory allocation
     uint32_t *server_rsa_message_length = (uint32_t *)malloc(sizeof(uint32_t));
-
     if (!server_rsa_message_length)
     {
         perror("SERVER Error: RSA Message length allocation failure.\n");
@@ -400,7 +399,6 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // Server RSA plaintext message
     // X = {nonce_c || s_DH_PubKey}
     unsigned char *server_message_rsa = (unsigned char *)malloc(NONCE_LEN + DHpubkeyLEN);
-
     if (!server_message_rsa)
     {
         perror("SERVER Error: RSA Message length allocation failure.\n");
@@ -410,18 +408,14 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // X = { 0 -> nonce_c -> 15 || ... }
     memcpy(server_message_rsa, nonce_c, NONCE_LEN);
     // X = { 0 -> nonce_c -> 15 || 15 -> server_DH_pubkey -> DHpubkeyLEN - 1 }
-    memcpy(server_message_rsa + NONCE_LEN, DH_pubkeyPEM_s, DHpubkeyLEN);
+    memcpy(server_message_rsa + NONCE_LEN, DH_pubkeyPEM_s, *len);
 
-    size_t message_len = strlen((const char *)server_message_rsa);
-    size_t message_len_b = (size_t)(NONCE_LEN + DHpubkeyLEN); // this works
+    size_t message_len = (size_t)(NONCE_LEN + *len); // this works
 
-    printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *server_message_rsa);
-
-    // UNTIL HERE ALL WORKS FINE
+    //printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *server_message_rsa);
 
     // Server RSA+SHA256 ciphertext signature
-    unsigned char *server_signature = SignatureWithRSA(EVP_sha256(), server_message_rsa, message_len_b, server_privkey_rsa, server_rsa_message_length);
-
+    unsigned char *server_signature = SignatureWithRSA(EVP_sha256(), server_message_rsa, message_len, server_privkey_rsa, server_rsa_message_length);
     if (!server_signature)
     {
         perror("SERVER Error: RSA signature failure.\n");
@@ -459,7 +453,6 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // Send M8: rsa signature
     // M8: M = {nonce_c||s_DH_PUk}. Y = M7 = E{H(M), Server_PrivKey_RSA}
     bytes_sent = send(ns, server_signature, server_sig_length, 0);
-
     if (bytes_sent < 0)
     {
         perror("SERVER Error: RSA signature send failure.\n");
@@ -470,7 +463,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         EVP_PKEY_free(DHprivKey);
         safe_exit(ns);
     }
-    puts("\n\n(S_RSA2): <Server RSA+SHA256 Signature> to <Client>.");
+    puts("\n(S_RSA2): <Server RSA+SHA256 Signature> to <Client>.");
+
+    printf("SIZES: signature(%u) test_message(%u)\n", server_sig_length, message_len);
 
     printf("\n--- END SERVER HANDSHAKE (%u) ---\n", ns);
 

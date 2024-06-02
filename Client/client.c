@@ -199,6 +199,8 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
+    printf("\n -- TEST SPUBKEY LEN (%u)", *DH_pubkeyLEN_s);
+
     /*
     (NO) unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
     (OK) unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
@@ -314,7 +316,7 @@ void *handshake(int sd)
     unsigned int *session_key_length = &skl;
 
     // Client Session Key
-    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, *session_key_length); // prima passavo l'indirizzo ed era errato
+    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, session_key_length); // prima passavo l'indirizzo ed era errato
     if (!session_key)
     {
         perror("CLIENT Error: (CH5) create_session_key() failure.\n");
@@ -331,6 +333,7 @@ void *handshake(int sd)
     }
     printf("(CH5): <Client Session Key>\n-> %hhu\n", *session_key);
 
+    /*
     // Memory Cleaning
     free(len);
     free(secret);
@@ -339,6 +342,7 @@ void *handshake(int sd)
     free(DH_pubkeyLEN_s);
     EVP_PKEY_free(DHprivKey);
     EVP_PKEY_free(DHpubKey_s);
+    */ 
 
     // *** END (PHASE 1) ***
 
@@ -406,22 +410,23 @@ void *handshake(int sd)
     memcpy(test_signature, nonce_c, NONCE_LEN);
     memcpy(test_signature + NONCE_LEN, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
 
-    uint32_t test_signature_len = NONCE_LEN + dh_server_pubkey_size;
-    size_t t_s_l = (size_t)test_signature_len;
+    size_t test_sig_length = (size_t)(NONCE_LEN + *DH_pubkeyLEN_s);
+    printf("\nSIZES: signature(%u) test_message(%u)", *server_sig_length, test_sig_length);
 
-    unsigned int s_len = (unsigned int)*server_sig_length;
+    //printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
 
-    printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
-
-    int verify_result = VerifySignatureWithRSA(EVP_sha256(), server_signature, s_len, server_pubkey_rsa, test_signature, t_s_l);
+    int verify_result = VerifySignatureWithRSA(EVP_sha256(), server_signature, *server_sig_length, server_pubkey_rsa, test_signature, test_sig_length);
     if (verify_result == 0)
     {
         perror("CLIENT Error: (Server Signature) NOT VALID.\n");
+        free(server_signature);
+        free(server_sig_length);
         close(sd);
         exit(EXIT_FAILURE);
-    }
+    } 
+    printf("\n(S_RSA2): SIGNATURE is OK BRUH -> (%u)\n", verify_result);
 
-    printf("\n\n--- END CLIENT HANDSHAKE with SERVER ---");
+    printf("--- END CLIENT HANDSHAKE with SERVER ---");
 
     return session_key;
 }
