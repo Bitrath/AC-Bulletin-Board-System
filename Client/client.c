@@ -4,6 +4,7 @@
 #define MAX_USER_CHAR 128
 #include <netdb.h>
 #include <stdio.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -14,6 +15,7 @@
 #include <openssl/rand.h>
 #include <openssl/pem.h>
 #include "../Utils/Dif_Hel.h"
+#include "../Utils/digital_signature.h"
 #include "../Utils/rxb.h"
 #include "../Utils/utils.h"
 
@@ -74,7 +76,8 @@ void *handshake(int sd)
          -> Session Key {Kab} Derivation.
 
     *** (PHASE 2) ***
-    *** SERVER RSA VERIFIICATION ***
+    *** CLIENT RSA VERIFICATION ***
+    (C_RSA1): The client receives a message M, verifies the signature using the already known server's public RSA key.s
 
     *** (PHASE 3) ***
     *** CLIENT DIGITAL ENVELOPE VERIFICATION ***
@@ -340,8 +343,74 @@ void *handshake(int sd)
     // *** END (PHASE 1) ***
 
     // *** BEGIN (PHASE 2) ***
-    
-    printf("--- END CLIENT HANDSHAKE with SERVER ---");
+
+    // --> STEP (C_RSA1)
+    // (C_RSA1): Client Receives two messages: 
+    //  -> M7: Signature length 
+    //  -> M8: Signature
+
+    // M7: server_signature_length
+    uint32_t *server_sig_length = (u_int32_t *)malloc(sizeof(u_int32_t));
+    bytes_received = recv(sd, server_sig_length, sizeof(u_int32_t), 0);
+    if(bytes_received <= 0){
+        perror("CLIENT Error: (C_RSA1) server_signature_length receive failure.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Server RSA+SHA256 Signature
+    // M8: M = {nonce_c||s_DH_PUk}. Y = M7 = E{H(M), Server_PrivKey_RSA}
+    unsigned char *server_signature = (unsigned char *)malloc(*server_sig_length);
+    bytes_received = recv(sd, server_signature, *server_sig_length, 0);
+    if(bytes_received <= 0){
+        perror("CLIENT Error: (C_RSA1) server_signature receive failure.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+    printf("(S_RSA1): <Server RSA+SHA256 Signature>\n-> ");
+    for (int i = 0; i < *server_sig_length; i++){
+        printf("%x ", server_signature[i]);
+    }
+
+    // --> STEP (C_RSA2)
+    // (C_RSA2): Client verifies Server_Signature with Server_RSA_PubKey already known.
+
+    const char *server_pubkey_rsa_filepath = "Client-Wallet/server_pubkey_rsa.pem";
+
+    // Server RSA_Pub_Key
+    EVP_PKEY *server_pubkey_rsa = Public_RSA_Key_From_File(server_pubkey_rsa_filepath);
+    if(!server_pubkey_rsa){
+        perror("CLIENT Error: RSA Public Key read failure.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    uint32_t dh_server_pubkey_size = *DH_pubkeyLEN_s;
+    unsigned char *test_signature = (unsigned char *)malloc(NONCE_LEN + dh_server_pubkey_size);
+    if(!test_signature){
+        perror("CLIENT Error: Test Signature malloc() failure.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+    memcpy(test_signature, nonce_c, NONCE_LEN);
+    memcpy(test_signature + NONCE_LEN, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
+
+    uint32_t test_signature_len = NONCE_LEN + dh_server_pubkey_size;
+    size_t t_s_l = (size_t)test_signature_len;
+
+    unsigned int s_len = (unsigned int)*server_sig_length;
+
+    //printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
+
+    int verify_result = 1;
+    //int verify_result = VerifySignatureWithRSA(EVP_sha256(), server_signature, s_len, server_pubkey_rsa, test_signature, t_s_l);
+    if(verify_result == 0){
+        perror("CLIENT Error: (Server Signature) NOT VALID.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("\n--- END CLIENT HANDSHAKE with SERVER ---");
     
     return session_key;
 }

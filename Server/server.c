@@ -4,6 +4,7 @@
 #define NONCE_LEN 16
 #define COMMAND_DIM 100
 #include <stdio.h>
+#include <stdbool.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <sys/wait.h>
@@ -20,6 +21,7 @@
 #include <openssl/rand.h>
 #include <openssl/pem.h>
 #include "../Utils/Dif_Hel.h"
+#include "../Utils/digital_signature.h"
 #include "../Utils/utils.h"
 #include "../Utils/rxb.h"
 
@@ -111,7 +113,10 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
          -> Session Key {Kab} Derivation.
 
     *** (PHASE 2) ***
-    *** SERVER RSA VERIFIICATION ***
+    *** SERVER RSA AUTHENTICATION ***
+    (S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
+        -> M7: M = {nonce_c||s_DH_PUk}. Y = M7 = E{ M, Server_PrivKey_RSA }
+    (S_RSA2): The server sends the signed message M7 to the client.
 
     *** (PHASE 3) ***
     *** CLIENT DIGITAL ENVELOPE VERIFICATION ***
@@ -351,6 +356,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     }
     printf("(SH5): <Server Session Key>\n-> %hhu\n", *session_key);
 
+    /* (For now we don't clean memory, let's see what the other steps need.)
     // Memory Cleaning
     free(len);
     free(DH_pubkeyPEM_s);
@@ -359,12 +365,98 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     free(secret);
     EVP_PKEY_free(DHprivKey);
     EVP_PKEY_free(DHpubKey_c);
-
+    */
     // *** END (PHASE 1) ***
 
     // *** BEGIN (PHASE 2) ***
+    // *** Server Authentication ***
+    //(S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
+    //   -> M7: M = {nonce_c||s_DH_PUk}. Y = M7 = E{ M, Server_PrivKey_RSA }
+    //(S_RSA2): The server sends the signed message M7 to the client.
 
-    printf("--- END SERVER HANDSHAKE (%u) ---\n", ns);
+    // --> STEP (S_RSA1)
+    // (S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
+
+    const char *server_privkey_rsa_filepath = "Server-Wallet/server_privkey_rsa.pem";
+
+    // Server RSA_Priv_Key
+    EVP_PKEY *server_privkey_rsa = Private_RSA_Key_From_File(server_privkey_rsa_filepath);
+    if(!server_privkey_rsa){
+        perror("SERVER Error: RSA Private Key read failure.\n");
+        safe_exit(ns);
+    }
+
+    // Server RSA_Message length: memory allocation
+    uint32_t* server_rsa_message_length = (uint32_t *)malloc(sizeof(uint32_t));
+    if(!server_rsa_message_length){
+        perror("SERVER Error: RSA Message length allocation failure.\n");
+        safe_exit(ns);
+    }
+
+    // Server RSA plaintext message 
+    // X = {nonce_c || s_DH_PubKey}
+    unsigned char *server_message_rsa = (unsigned char *)malloc(NONCE_LEN + DHpubkeyLEN);
+    if(!server_message_rsa){
+        perror("SERVER Error: RSA Message length allocation failure.\n");
+        free(server_rsa_message_length);
+        safe_exit(ns);
+    }
+    // X = { 0 -> nonce_c -> 15 || ... }
+    memcpy(server_message_rsa, nonce_c, NONCE_LEN);
+    // X = { 0 -> nonce_c -> 15 || 15 -> server_DH_pubkey -> DHpubkeyLEN - 1 }
+    memcpy(server_message_rsa + NONCE_LEN, DH_pubkeyPEM_s, DHpubkeyLEN);
+
+    size_t message_len = strlen((const char *)server_message_rsa);
+    size_t message_len_b = (size_t)(NONCE_LEN + DHpubkeyLEN); // this works
+
+    printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *server_message_rsa);
+
+    // Server RSA+SHA256 ciphertext signature 
+    unsigned char *server_signature = SignatureWithRSA(EVP_sha256(), server_message_rsa, message_len_b, server_privkey_rsa, server_rsa_message_length);
+    if(!server_signature){
+        perror("SERVER Error: RSA signature failure.\n");
+        free(server_rsa_message_length);
+        free(server_message_rsa);
+        safe_exit(ns);
+    }
+    printf("(S_RSA1): <Server Signature>\n-> ");
+    for (int i = 0; i < *server_rsa_message_length; i++){
+        printf("%x ", server_signature[i]);
+    }
+
+    // --> STEP (S_RSA2)
+    // (S_RSA1): Send M7 (signature_length) and M7 (signature) to Client
+
+    // Send M7: signature length
+    bytes_sent = send(ns, server_rsa_message_length, sizeof(uint32_t), 0);
+    if(bytes_sent < 0){
+        perror("SERVER Error: RSA signature_length send failure.\n");
+        free(nonce_c);
+        free(nonce_s);
+        free(len);
+        free(DH_pubkeyPEM_s);
+        EVP_PKEY_free(DHprivKey);
+        safe_exit(ns);
+    }
+
+    uint32_t server_sig_length = *server_rsa_message_length;
+
+    // Send M8: rsa signature
+    // M8: M = {nonce_c||s_DH_PUk}. Y = M7 = E{H(M), Server_PrivKey_RSA}
+    bytes_sent = send(ns, server_signature, server_sig_length, 0);
+    if(bytes_sent < 0){
+        perror("SERVER Error: RSA signature send failure.\n");
+        free(nonce_c);
+        free(nonce_s);
+        free(len);
+        free(DH_pubkeyPEM_s);
+        EVP_PKEY_free(DHprivKey);
+        safe_exit(ns);
+    }
+    puts("\n(S_RSA2): <Server RSA+SHA256 Signature> to <Client>.");
+
+
+    printf("\n--- END SERVER HANDSHAKE (%u) ---\n", ns);
 
     return session_key; 
 }
