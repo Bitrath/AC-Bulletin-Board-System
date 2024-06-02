@@ -95,44 +95,44 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
 
 unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da usare solo se si effettua il login)
 {
-   /* 
-    (CLIENT HANDSHAKE PROTOCOL) 
+    /*
+     (CLIENT HANDSHAKE PROTOCOL)
 
-    *** (PHASE 1) ***
-    *** EPHEMERAL DIFFIE HELLMAN ***
-    (SH1): [NONCEs] 
-         -> M1 from Client and M2 to Client. 
-    (SH2): [Ephemeral DIFFIE-HELLMAN Setup] 
-         -> <Server DH {PU, PR}> generation
-    (SH3): [DH PubKey Exchange]
-         A) M3 and M4 send to Client. {s_DH_PUk_len, s_DH_PUk}
-         B) M5 and M6 from Client. {c_DH_PUk_len, c_DH_PUk}
-    (SH4): [DH Shared Secret]
-         -> Diffie-Hellman Shared Secret Derivation.
-    (SH5): [Session Key Kab]
-         -> Session Key {Kab} Derivation.
+     *** (PHASE 1) ***
+     *** EPHEMERAL DIFFIE HELLMAN ***
+     (SH1): [NONCEs]
+          -> M1 from Client and M2 to Client.
+     (SH2): [Ephemeral DIFFIE-HELLMAN Setup]
+          -> <Server DH {PU, PR}> generation
+     (SH3): [DH PubKey Exchange]
+          A) M3 and M4 send to Client. {s_DH_PUk_len, s_DH_PUk}
+          B) M5 and M6 from Client. {c_DH_PUk_len, c_DH_PUk}
+     (SH4): [DH Shared Secret]
+          -> Diffie-Hellman Shared Secret Derivation.
+     (SH5): [Session Key Kab]
+          -> Session Key {Kab} Derivation.
 
-    *** (PHASE 2) ***
-    *** SERVER RSA AUTHENTICATION ***
-    (S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
-        -> M7: M = {nonce_c||s_DH_PUk}. Y = M7 = E{ M, Server_PrivKey_RSA }
-    (S_RSA2): The server sends the signed message M7 to the client.
+     *** (PHASE 2) ***
+     *** SERVER RSA AUTHENTICATION ***
+     (S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
+         -> M7: M = {nonce_c||s_DH_PUk}. Y = M7 = E{ M, Server_PrivKey_RSA }
+     (S_RSA2): The server sends the signed message M7 to the client.
 
-    *** (PHASE 3) ***
-    *** CLIENT DIGITAL ENVELOPE VERIFICATION ***
-    
-    (HANDSHAKE PROTOCOL MESSAGES)
-        {Client}  <-|->  {Server}
-    M1: {nonce_c} -> {}
-    M2: {} <- {nonce_s}
-    M3: {} <- {s_DH_PUk_len}
-    M4: {} <- {s_DH_PUk}
-    M5: {s_DH_PUk_len} -> {}
-    M6: {s_DH_PUk} -> {}
-    M7: {} <- {E(H(nonce_c + s_DH_PUk), s_PRk_rsa)}
-    M8: {} <- {s_certificate}
-    M9: {ENVELOPE(nonce_s + c_DH_PUk), E(c_sym_k))} -> {}
-    */ 
+     *** (PHASE 3) ***
+     *** CLIENT DIGITAL ENVELOPE VERIFICATION ***
+
+     (HANDSHAKE PROTOCOL MESSAGES)
+         {Client}  <-|->  {Server}
+     M1: {nonce_c} -> {}
+     M2: {} <- {nonce_s}
+     M3: {} <- {s_DH_PUk_len}
+     M4: {} <- {s_DH_PUk}
+     M5: {s_DH_PUk_len} -> {}
+     M6: {s_DH_PUk} -> {}
+     M7: {} <- {E(H(nonce_c + s_DH_PUk), s_PRk_rsa)}
+     M8: {} <- {s_certificate}
+     M9: {ENVELOPE(nonce_s + c_DH_PUk), E(c_sym_k))} -> {}
+     */
 
     printf("\n--- SERVER HANDSHAKE (%u)----\n", ns);
 
@@ -140,10 +140,10 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     //*** EPHEMERAL DIFFIE HELLMAN ***
 
     // --> STEP (SH1)
-    // (SH1): NONCE Exchange 
+    // (SH1): NONCE Exchange
 
     uint32_t *len;
-    
+
     // (SH1): Client -> M1{nonce_c}
     unsigned char *nonce_c = (unsigned char *)malloc(NONCE_LEN);
     ssize_t bytes_received = recv(ns, nonce_c, NONCE_LEN, 0);
@@ -152,7 +152,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         perror("SERVER Error: client_nonce_recv() failure.\n");
         safe_exit(ns);
     }
-    
+
     printf("(SH1): <Client Nonce> received.\n-> ");
     for (int i = 0; i < NONCE_LEN; i++)
     {
@@ -161,7 +161,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // Server Nonce
     unsigned char *nonce_s = (unsigned char *)malloc(NONCE_LEN);
-    RAND_poll();                                  
+    RAND_poll();
     int rs = RAND_bytes(nonce_s, NONCE_LEN);
     if (rs != 1)
     {
@@ -265,7 +265,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     unsigned char *DH_pubkeyPEM_c = malloc((size_t)len + 1);
     unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc((*len + 1) * sizeof(unsigned char));
     */
-    
+
     // Client DH_Pub_Key: memory allocation
     unsigned char *DH_pubkeyPEM_c = (unsigned char *)malloc(*DH_pubkeyLEN_c);
     if (!DH_pubkeyPEM_c)
@@ -340,6 +340,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // Server Session Key {Kab}
     // @param {k_len} comes as an argument of the handshake function
     unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, k_len);
+
     if (!session_key)
     {
         perror("SERVER Error: create_session_key (failure).\n");
@@ -370,9 +371,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // *** BEGIN (PHASE 2) ***
     // *** Server Authentication ***
-    //(S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
+    // (S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
     //   -> M7: M = {nonce_c||s_DH_PUk}. Y = M7 = E{ M, Server_PrivKey_RSA }
-    //(S_RSA2): The server sends the signed message M7 to the client.
+    // (S_RSA2): The server sends the signed message M7 to the client.
 
     // --> STEP (S_RSA1)
     // (S_RSA1): The server creates a proof by signing a message M (which could include the session key or a nonce) with its private RSA key.
@@ -381,22 +382,27 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // Server RSA_Priv_Key
     EVP_PKEY *server_privkey_rsa = Private_RSA_Key_From_File(server_privkey_rsa_filepath);
-    if(!server_privkey_rsa){
+    if (!server_privkey_rsa)
+    {
         perror("SERVER Error: RSA Private Key read failure.\n");
         safe_exit(ns);
     }
 
     // Server RSA_Message length: memory allocation
-    uint32_t* server_rsa_message_length = (uint32_t *)malloc(sizeof(uint32_t));
-    if(!server_rsa_message_length){
+    uint32_t *server_rsa_message_length = (uint32_t *)malloc(sizeof(uint32_t));
+
+    if (!server_rsa_message_length)
+    {
         perror("SERVER Error: RSA Message length allocation failure.\n");
         safe_exit(ns);
     }
 
-    // Server RSA plaintext message 
+    // Server RSA plaintext message
     // X = {nonce_c || s_DH_PubKey}
     unsigned char *server_message_rsa = (unsigned char *)malloc(NONCE_LEN + DHpubkeyLEN);
-    if(!server_message_rsa){
+
+    if (!server_message_rsa)
+    {
         perror("SERVER Error: RSA Message length allocation failure.\n");
         free(server_rsa_message_length);
         safe_exit(ns);
@@ -411,16 +417,23 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *server_message_rsa);
 
-    // Server RSA+SHA256 ciphertext signature 
+    // UNTIL HERE ALL WORKS FINE
+
+    // Server RSA+SHA256 ciphertext signature
     unsigned char *server_signature = SignatureWithRSA(EVP_sha256(), server_message_rsa, message_len_b, server_privkey_rsa, server_rsa_message_length);
-    if(!server_signature){
+
+    if (!server_signature)
+    {
         perror("SERVER Error: RSA signature failure.\n");
         free(server_rsa_message_length);
         free(server_message_rsa);
         safe_exit(ns);
     }
+
     printf("(S_RSA1): <Server Signature>\n-> ");
-    for (int i = 0; i < *server_rsa_message_length; i++){
+
+    for (int i = 0; i < *server_rsa_message_length; i++)
+    {
         printf("%x ", server_signature[i]);
     }
 
@@ -429,7 +442,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     // Send M7: signature length
     bytes_sent = send(ns, server_rsa_message_length, sizeof(uint32_t), 0);
-    if(bytes_sent < 0){
+
+    if (bytes_sent < 0)
+    {
         perror("SERVER Error: RSA signature_length send failure.\n");
         free(nonce_c);
         free(nonce_s);
@@ -444,7 +459,9 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // Send M8: rsa signature
     // M8: M = {nonce_c||s_DH_PUk}. Y = M7 = E{H(M), Server_PrivKey_RSA}
     bytes_sent = send(ns, server_signature, server_sig_length, 0);
-    if(bytes_sent < 0){
+
+    if (bytes_sent < 0)
+    {
         perror("SERVER Error: RSA signature send failure.\n");
         free(nonce_c);
         free(nonce_s);
@@ -453,12 +470,11 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         EVP_PKEY_free(DHprivKey);
         safe_exit(ns);
     }
-    puts("\n(S_RSA2): <Server RSA+SHA256 Signature> to <Client>.");
-
+    puts("\n\n(S_RSA2): <Server RSA+SHA256 Signature> to <Client>.");
 
     printf("\n--- END SERVER HANDSHAKE (%u) ---\n", ns);
 
-    return session_key; 
+    return session_key;
 }
 
 void *secureConnection(void *old_sd)
@@ -560,7 +576,7 @@ int main(int argc, char **argv)
 
 /*
     Client  |||  Server
-    
+
 M1: {nonce_c} -> {}
 M2: {} <- {nonce_s}
 M3: {} <- {s_DH_PUk_len}

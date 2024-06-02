@@ -58,14 +58,14 @@ void client_control(int sd)
 
 void *handshake(int sd)
 {
-    /* 
-    (CLIENT HANDSHAKE PROTOCOL) 
+    /*
+    (CLIENT HANDSHAKE PROTOCOL)
 
     *** (PHASE 1) ***
     *** EPHEMERAL DIFFIE HELLMAN ***
-    (CH1): [NONCEs] 
-         -> M1 to Server and M2 from Server. 
-    (CH2): [Ephemeral DIFFIE-HELLMAN Setup] 
+    (CH1): [NONCEs]
+         -> M1 to Server and M2 from Server.
+    (CH2): [Ephemeral DIFFIE-HELLMAN Setup]
          -> <Client DH {PU, PR}> generation,
     (CH3): [DH PubKey Exchange]
          A) M3 and M4 receive from Server. {s_DH_PUk_len, s_DH_PUk}
@@ -81,7 +81,7 @@ void *handshake(int sd)
 
     *** (PHASE 3) ***
     *** CLIENT DIGITAL ENVELOPE VERIFICATION ***
-    
+
     (HANDSHAKE PROTOCOL MESSAGES)
         {Client}  <-|->  {Server}
     M1: {nonce_c} -> {}
@@ -93,7 +93,7 @@ void *handshake(int sd)
     M7: {} <- {E(H(nonce_c + s_DH_PUk), s_PRk_rsa)}
     M8: {} <- {s_certificate}
     M9: {ENVELOPE(nonce_s + c_DH_PUk), E(c_sym_k))} -> {}
-    */ 
+    */
 
     printf("--- CLIENT HANDSHAKE with SERVER ----");
 
@@ -101,11 +101,11 @@ void *handshake(int sd)
     //*** EPHEMERAL DIFFIE HELLMAN ***
 
     // --> STEP (CH1)
-    // (CH1): NONCEs Exchange 
+    // (CH1): NONCEs Exchange
 
     // Client Nonce
     unsigned char *nonce_c = (unsigned char *)malloc(NONCE_LEN);
-    RAND_poll();                                  
+    RAND_poll();
     int rc = RAND_bytes(nonce_c, NONCE_LEN);
     if (rc != 1)
     {
@@ -130,7 +130,7 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
     printf("\n(CH1): <Client Nonce> to <Server>");
-    
+
     // (CH1): M2{nonce_s} <- Server
     unsigned char *nonce_s = (unsigned char *)malloc(NONCE_LEN);
     ssize_t bytes_received = recv(sd, nonce_s, NONCE_LEN, 0);
@@ -140,7 +140,7 @@ void *handshake(int sd)
         free(nonce_c);
         close(sd);
         exit(EXIT_FAILURE);
-    } 
+    }
 
     // Server Nonce
     printf("\n(CH1): <Server Nonce> received. \n->  ");
@@ -153,7 +153,7 @@ void *handshake(int sd)
     // --> STEP (CH2)
     // (CH2): Ephemeral DIFFIE-HELLMAN Client Setup
 
-    // Client DH_Priv_Key 
+    // Client DH_Priv_Key
     EVP_PKEY *DHprivKey = DH_privkey();
 
     // Client DH_Pub_Key length: memory allocation
@@ -199,7 +199,7 @@ void *handshake(int sd)
         exit(EXIT_FAILURE);
     }
 
-    /* 
+    /*
     (NO) unsigned char *DH_pubkeyPEM_s = malloc((size_t)len + 1);
     (OK) unsigned char *DH_pubkeyPEM_s = (unsigned char*)malloc((*len + 1) * sizeof(unsigned char));
     bytes_received = recv(sd, DH_pubkeyPEM_s, *len, 0);
@@ -251,7 +251,7 @@ void *handshake(int sd)
         close(sd);
         exit(EXIT_FAILURE);
     }
-    
+
     // (CH3): M6{c_DH_PUk} -> Server [G^a]
     if ((bytes_sent = send(sd, DH_pubkeyPEM_c, *len, 0)) < 0)
     {
@@ -267,8 +267,8 @@ void *handshake(int sd)
     }
     printf("(CH3): <Client Public Key> to <Server>.\n");
 
-    // (Server_DH_Pub_Key).PEM 
-    const char *filepath = "ServerPubKey.pem"; 
+    // (Server_DH_Pub_Key).PEM
+    const char *filepath = "ServerPubKey.pem";
     EVP_PKEY *DHpubKey_s = DH_derive_pubkey(filepath, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
     if (DHpubKey_s == NULL)
     {
@@ -285,7 +285,7 @@ void *handshake(int sd)
 
     // --> STEP (CH4)
     // (CH4): Diffie-Hellman Shared Secret Derivation
-    
+
     // Client Secret Length: To retrieve the shared secret’s length after the DH_derive_shared_secret call
     size_t shared_secret_len;
 
@@ -314,7 +314,7 @@ void *handshake(int sd)
     unsigned int *session_key_length = &skl;
 
     // Client Session Key
-    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, &session_key_length);
+    unsigned char *session_key = create_session_key(EVP_sha256(), EVP_aes_128_gcm(), secret, shared_secret_len, *session_key_length); // prima passavo l'indirizzo ed era errato
     if (!session_key)
     {
         perror("CLIENT Error: (CH5) create_session_key() failure.\n");
@@ -329,7 +329,7 @@ void *handshake(int sd)
         close(sd);
         exit(EXIT_FAILURE);
     }
-    printf("(CH5): <Client Session Key>\n-> %hhu\n", *session_key); 
+    printf("(CH5): <Client Session Key>\n-> %hhu\n", *session_key);
 
     // Memory Cleaning
     free(len);
@@ -345,14 +345,17 @@ void *handshake(int sd)
     // *** BEGIN (PHASE 2) ***
 
     // --> STEP (C_RSA1)
-    // (C_RSA1): Client Receives two messages: 
-    //  -> M7: Signature length 
+    // (C_RSA1): Client Receives two messages:
+    //  -> M7: Signature length
     //  -> M8: Signature
 
     // M7: server_signature_length
     uint32_t *server_sig_length = (u_int32_t *)malloc(sizeof(u_int32_t));
+
     bytes_received = recv(sd, server_sig_length, sizeof(u_int32_t), 0);
-    if(bytes_received <= 0){
+    
+    if (bytes_received <= 0)
+    {
         perror("CLIENT Error: (C_RSA1) server_signature_length receive failure.\n");
         close(sd);
         exit(EXIT_FAILURE);
@@ -361,14 +364,20 @@ void *handshake(int sd)
     // Server RSA+SHA256 Signature
     // M8: M = {nonce_c||s_DH_PUk}. Y = M7 = E{H(M), Server_PrivKey_RSA}
     unsigned char *server_signature = (unsigned char *)malloc(*server_sig_length);
+
     bytes_received = recv(sd, server_signature, *server_sig_length, 0);
-    if(bytes_received <= 0){
+
+    if (bytes_received <= 0)
+    {
         perror("CLIENT Error: (C_RSA1) server_signature receive failure.\n");
         close(sd);
         exit(EXIT_FAILURE);
     }
+
     printf("(S_RSA1): <Server RSA+SHA256 Signature>\n-> ");
-    for (int i = 0; i < *server_sig_length; i++){
+
+    for (int i = 0; i < *server_sig_length; i++)
+    {
         printf("%x ", server_signature[i]);
     }
 
@@ -379,7 +388,8 @@ void *handshake(int sd)
 
     // Server RSA_Pub_Key
     EVP_PKEY *server_pubkey_rsa = Public_RSA_Key_From_File(server_pubkey_rsa_filepath);
-    if(!server_pubkey_rsa){
+    if (!server_pubkey_rsa)
+    {
         perror("CLIENT Error: RSA Public Key read failure.\n");
         close(sd);
         exit(EXIT_FAILURE);
@@ -387,7 +397,8 @@ void *handshake(int sd)
 
     uint32_t dh_server_pubkey_size = *DH_pubkeyLEN_s;
     unsigned char *test_signature = (unsigned char *)malloc(NONCE_LEN + dh_server_pubkey_size);
-    if(!test_signature){
+    if (!test_signature)
+    {
         perror("CLIENT Error: Test Signature malloc() failure.\n");
         close(sd);
         exit(EXIT_FAILURE);
@@ -400,18 +411,18 @@ void *handshake(int sd)
 
     unsigned int s_len = (unsigned int)*server_sig_length;
 
-    //printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
+    printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
 
-    int verify_result = 1;
-    //int verify_result = VerifySignatureWithRSA(EVP_sha256(), server_signature, s_len, server_pubkey_rsa, test_signature, t_s_l);
-    if(verify_result == 0){
+    int verify_result = VerifySignatureWithRSA(EVP_sha256(), server_signature, s_len, server_pubkey_rsa, test_signature, t_s_l);
+    if (verify_result == 0)
+    {
         perror("CLIENT Error: (Server Signature) NOT VALID.\n");
         close(sd);
         exit(EXIT_FAILURE);
     }
 
-    printf("\n--- END CLIENT HANDSHAKE with SERVER ---");
-    
+    printf("\n\n--- END CLIENT HANDSHAKE with SERVER ---");
+
     return session_key;
 }
 
