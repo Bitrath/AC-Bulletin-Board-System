@@ -2,6 +2,9 @@
 #define MAX_REQUEST_SIZE (64 * 1024)
 #define NONCE_LEN 16
 #define MAX_USER_CHAR 128
+#define MAX_PW_CHAR 32
+#define MAX_RESULT_CHAR 16
+#define CIPHER_LENGTH 128
 #include <netdb.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -18,6 +21,14 @@
 #include "../Utils/digital_signature.h"
 #include "../Utils/rxb.h"
 #include "../Utils/utils.h"
+
+typedef struct ACCOUNT
+{
+    char email[MAX_USER_CHAR];
+    char username[MAX_USER_CHAR];
+    char password[MAX_PW_CHAR];
+
+} ACCOUNT;
 
 void t_disconnect(int sd)
 {
@@ -342,7 +353,7 @@ void *handshake(int sd)
     free(DH_pubkeyLEN_s);
     EVP_PKEY_free(DHprivKey);
     EVP_PKEY_free(DHpubKey_s);
-    */ 
+    */
 
     // *** END (PHASE 1) ***
 
@@ -357,7 +368,7 @@ void *handshake(int sd)
     uint32_t *server_sig_length = (u_int32_t *)malloc(sizeof(u_int32_t));
 
     bytes_received = recv(sd, server_sig_length, sizeof(u_int32_t), 0);
-    
+
     if (bytes_received <= 0)
     {
         perror("CLIENT Error: (C_RSA1) server_signature_length receive failure.\n");
@@ -411,11 +422,12 @@ void *handshake(int sd)
     memcpy(test_signature + NONCE_LEN, DH_pubkeyPEM_s, *DH_pubkeyLEN_s);
 
     size_t test_sig_length = (size_t)(NONCE_LEN + *DH_pubkeyLEN_s);
-    printf("\nSIZES: signature(%u) test_message(%u)", *server_sig_length, test_sig_length);
+    printf("\nSIZES: signature(%u) test_message(%zu)", *server_sig_length, test_sig_length);
 
-    //printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
+    // printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *test_signature);
 
     int verify_result = VerifySignatureWithRSA(EVP_sha256(), server_signature, *server_sig_length, server_pubkey_rsa, test_signature, test_sig_length);
+
     if (verify_result == 0)
     {
         perror("CLIENT Error: (Server Signature) NOT VALID.\n");
@@ -423,10 +435,16 @@ void *handshake(int sd)
         free(server_sig_length);
         close(sd);
         exit(EXIT_FAILURE);
-    } 
+    }
+
     printf("\n(S_RSA2): SIGNATURE is OK BRUH -> (%u)\n", verify_result);
 
-    printf("--- END CLIENT HANDSHAKE with SERVER ---");
+    // With the last recv the client has received and did the verification of the server, now the client needs to verify himself
+    // with the digital envelope method.
+
+    // DIGITAL ENVELOPE CLIENT VERIFICATION
+
+    puts("--- END CLIENT HANDSHAKE with SERVER ---");
 
     return session_key;
 }
@@ -478,6 +496,61 @@ int main(int argc, char **argv)
     freeaddrinfo(res);
 
     unsigned char *K_ab = handshake(sd);
+
+    client_control(sd);
+
+    unsigned char cipher_result[CIPHER_LENGTH];
+    unsigned char result[MAX_RESULT_CHAR];
+    unsigned char *iv;
+
+    ssize_t bytes_received = recv(sd, cipher_result, sizeof(cipher_result), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("CLIENT Error: Failed to get the result of the user search from the server\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    cipher_result[bytes_received] = '\0';
+
+    puts(cipher_result);
+
+    int ct_result_len = decrypt_data(cipher_result, bytes_received, K_ab, iv, result);
+
+    puts(result);
+
+    if ((err = strcmp((char *)result, "found")) == 0) // client registrato
+    {
+        puts("Client registrato, procedo con il login...");
+    }
+    else if ((err = strcmp((char *)result, "not_found")) == 0) // client non registrato
+    {
+        puts("Utente non registrato nell'archivio, procedere con la registrazione? Y-si N-no");
+
+        int c = getchar();
+
+        if (c == 'y' || c == 'Y')
+        {
+            // login()
+            puts("LOGIN");
+        }
+        else if (c == 'n' || c == 'N')
+        {
+            // registration or quit
+            puts("REGISTRAZIONE");
+        }
+        else
+        {
+            perror("Errore nella lettura del carattere o EOF raggiunto.");
+            exit(EXIT_FAILURE);
+        }
+    }
+    else // ERRORE
+    {
+        perror("SERVER Error: Failed to get the result of the user search from the server");
+        exit(EXIT_FAILURE);
+    }
 
     close(sd);
     return 0;

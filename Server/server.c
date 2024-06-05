@@ -1,8 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 #define MAX_USER_CHAR 128
+#define MAX_PW_CHAR 32
 #define MAX_REQUEST_SIZE (64 * 1024)
 #define NONCE_LEN 16
 #define COMMAND_DIM 100
+#define MAX_RESULT_CHAR 16
+#define CIPHER_LENGTH 256
+#include <time.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -17,13 +21,22 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <pthread.h>
+#include "../Utils/utils.h"
+#include "../Utils/rxb.h"
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
 #include "../Utils/Dif_Hel.h"
 #include "../Utils/digital_signature.h"
-#include "../Utils/utils.h"
-#include "../Utils/rxb.h"
+#include "../Utils/Enc_Dec.h"
+
+typedef struct ACCOUNT
+{
+    char email[MAX_USER_CHAR];
+    char username[MAX_USER_CHAR];
+    char password[MAX_PW_CHAR];
+
+} ACCOUNT;
 
 void handler(int signo)
 {
@@ -65,12 +78,6 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
                                                         // e con solo parole cercate intere (-w)
                                                         // gli '' servono per confermare una
                                                         // corrispondenza esatta
-    printf("Nome utente: ");
-    for (size_t i = 0; i < user_len; ++i)
-    {
-        printf("%c", user[i]);
-    }
-    puts("");
 
     int result = system(command); // Esecuzione del comando e controllo del valore di ritorno
                                   // per vedere se l'user e' stato trovato
@@ -83,14 +90,21 @@ int client_control(int ns) // ritorna 1 se il client e' effettivamente presente 
     else if (result == 256)
     {
         puts("L'utente attuale non e' registrato.");
-        safe_exit(ns);
         return 0;
     }
     else
     {
-        printf("Errore durante l'esecuzione di grep.\n");
-        return 0;
+        puts("Errore durante la ricerca nel database del nome utente.");
+        return -1;
     }
+}
+
+int login(char *user, char *pw) // ritorna 1 se l'utente ha effettuato il login con successo
+{
+    // il nome utente lo abbiamo gia' dal client_control
+
+    // dobbiamo ricevere la password cifrata
+    return 0;
 }
 
 unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da usare solo se si effettua il login)
@@ -412,7 +426,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
     size_t message_len = (size_t)(NONCE_LEN + *len); // this works
 
-    //printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *server_message_rsa);
+    // printf("\n(TEST M): <nonce_c + dh_s_pk>\n-> %hhu\n", *server_message_rsa);
 
     // Server RSA+SHA256 ciphertext signature
     unsigned char *server_signature = SignatureWithRSA(EVP_sha256(), server_message_rsa, message_len, server_privkey_rsa, server_rsa_message_length);
@@ -453,6 +467,7 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
     // Send M8: rsa signature
     // M8: M = {nonce_c||s_DH_PUk}. Y = M7 = E{H(M), Server_PrivKey_RSA}
     bytes_sent = send(ns, server_signature, server_sig_length, 0);
+
     if (bytes_sent < 0)
     {
         perror("SERVER Error: RSA signature send failure.\n");
@@ -463,9 +478,8 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
         EVP_PKEY_free(DHprivKey);
         safe_exit(ns);
     }
-    puts("\n(S_RSA2): <Server RSA+SHA256 Signature> to <Client>.");
-
-    printf("SIZES: signature(%u) test_message(%u)\n", server_sig_length, message_len);
+    printf("\n(S_RSA2): <Server RSA + SHA256 Signature> to <Client>.\n\n");
+    printf("SIZES: signature(%u) test_message(%zu)\n", server_sig_length, message_len);
 
     printf("\n--- END SERVER HANDSHAKE (%u) ---\n", ns);
 
@@ -475,10 +489,55 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 void *secureConnection(void *old_sd)
 {
     char *user = "";
+    char *pw = "";
     int sd = *((int *)old_sd);
     unsigned int key_len = 0;
+    unsigned char result[MAX_RESULT_CHAR];
+    ssize_t bytes_sent;
+    int err;
 
     unsigned char *K_ab = handshake(sd, &key_len, user);
+
+    err = client_control(sd);
+
+    if (err == 1) // client registrato
+    {
+        sprintf((char *)result, "%s", "found");
+    }
+    else if (err == 0) // client non registrato
+    {
+        sprintf((char *)result, "%s", "not_found");
+    }
+    else // ERRORE
+    {
+        sprintf((char *)result, "%s", "error");
+    }
+
+    // vettore iv
+    srand(time(NULL));
+    int iv = abs(rand() % 1000000);
+    unsigned char iv_stringa[16];
+    sprintf((char *)iv_stringa, "%d", iv);
+    puts(iv_stringa);
+
+    unsigned char cipher_result[CIPHER_LENGTH];
+
+    result[sizeof(result)] = '\0';
+    puts(result);
+
+    int ct_result_len = encrypt_data(result, sizeof(result), K_ab, NULL, cipher_result);
+
+    puts(cipher_result);
+
+    bytes_sent = send(sd, cipher_result, ct_result_len, 0);
+
+    if (bytes_sent < 0)
+    {
+        perror("SERVER Error: Result of the search of the username -> send failure.\n");
+        free(user);
+        free(pw);
+        safe_exit(sd);
+    }
 
     safe_exit(sd);
     return 0;
