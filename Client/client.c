@@ -1,7 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define MAX_REQUEST_SIZE (64 * 1024)
 #define NONCE_LEN 16
-#define MAX_USER_CHAR 128
+#define MAX_USER_CHAR 32
 #define MAX_PW_CHAR 32
 #define MAX_RESULT_CHAR 16
 #define CIPHER_LENGTH 128
@@ -12,6 +12,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include "../Utils/rxb.h"
+#include "../Utils/utils.h"
 #include <openssl/conf.h>
 #include <openssl/evp.h>
 #include <openssl/err.h>
@@ -19,8 +21,6 @@
 #include <openssl/pem.h>
 #include "../Utils/Dif_Hel.h"
 #include "../Utils/digital_signature.h"
-#include "../Utils/rxb.h"
-#include "../Utils/utils.h"
 
 typedef struct ACCOUNT
 {
@@ -36,18 +36,14 @@ void t_disconnect(int sd)
     puts("--- <Disconnected from the server> ---");
 }
 
-void client_control(int sd)
+void client_control(int sd, char *user, unsigned char *K_ab)
 {
     // --- CONTROLLO PRESENZA DELL'UTENTE TRA QUELLI REGISTRATI ---
 
-    char user[MAX_USER_CHAR];
     ssize_t bytes_sent;
 
-    memset(&user, 0, sizeof(user)); // inizializzo tutto il vettore a 0
-    size_t user_len = sizeof(user) - 1;
-
     puts("Inserire il username: ");
-    if (fgets(user, sizeof(user), stdin) < 0)
+    if (fgets(user, MAX_USER_CHAR, stdin) < 0)
     {
         fprintf(stderr, "Errore fgets user");
         exit(EXIT_FAILURE);
@@ -58,7 +54,15 @@ void client_control(int sd)
         exit(EXIT_FAILURE);
     }
 
-    bytes_sent = send(sd, user, user_len, 0);
+    unsigned char cipher_user[CIPHER_LENGTH];
+
+    //////////////////////////
+    /// DA AGGIUNGERE L'IV ///
+    //////////////////////////
+
+    int ct_user_len = encrypt_data((unsigned char *)user, sizeof(user), K_ab, NULL, cipher_user); // NULL da sostituire con IV, non funziona in nessun modo
+
+    bytes_sent = send(sd, cipher_user, ct_user_len, 0);
 
     if (bytes_sent < 0)
     {
@@ -449,10 +453,20 @@ void *handshake(int sd)
     return session_key;
 }
 
+void registration(char *email, char *user, char *pw)
+{
+    ssize_t bytes_sent;
+
+    size_t email_len = sizeof(email) - 1;
+
+    size_t pw_len = sizeof(pw) - 1;
+}
+
 int main(int argc, char **argv)
 {
     int err, sd;
     struct addrinfo hints, *res, *ptr;
+    ACCOUNT account;
 
     if (argc != 3)
     {
@@ -497,7 +511,7 @@ int main(int argc, char **argv)
 
     unsigned char *K_ab = handshake(sd);
 
-    client_control(sd);
+    client_control(sd, account.username, K_ab);
 
     unsigned char cipher_result[CIPHER_LENGTH];
     unsigned char result[MAX_RESULT_CHAR];
@@ -514,39 +528,49 @@ int main(int argc, char **argv)
 
     cipher_result[bytes_received] = '\0';
 
-    puts(cipher_result);
-
     int ct_result_len = decrypt_data(cipher_result, bytes_received, K_ab, iv, result);
 
-    puts(result);
-
-    if ((err = strcmp((char *)result, "found")) == 0) // client registrato
+    if (strcmp((char *)result, "found") == 0) // client registrato
     {
         puts("Client registrato, procedo con il login...");
     }
-    else if ((err = strcmp((char *)result, "not_found")) == 0) // client non registrato
+    else if (strcmp((char *)result, "not_found") == 0) // client non registrato
     {
-        puts("Utente non registrato nell'archivio, procedere con la registrazione? Y-si N-no");
+        char c;
+        account.username[strlen(account.username) - 1] = '\0';
 
-        int c = getchar();
+        while (true)
+        {
+            printf("Utente '%s' non registrato nell'archivio, procedere con la registrazione? Y - N ", account.username);
 
-        if (c == 'y' || c == 'Y')
-        {
-            // login()
-            puts("LOGIN");
-        }
-        else if (c == 'n' || c == 'N')
-        {
-            // registration or quit
-            puts("REGISTRAZIONE");
-        }
-        else
-        {
-            perror("Errore nella lettura del carattere o EOF raggiunto.");
-            exit(EXIT_FAILURE);
+            c = getchar(); // Legge un solo carattere
+
+            // Svuota il buffer di input fino alla fine della riga
+            while (getchar() != '\n')
+                ;
+
+            if (c == 'y' || c == 'Y')
+            {
+                // send registration request
+
+                puts("REGISTRAZIONE in corso...");
+                registration(account.email, account.username, account.password);
+                break; // da sostituire con la chiamata a funzione
+            }
+            else if (c == 'n' || c == 'N')
+            {
+                puts("Terminazione Comunicazione.");
+                close(sd);
+                exit(EXIT_SUCCESS);
+            }
+            else
+            {
+                perror("Errore nella risposta.");
+                continue;
+            }
         }
     }
-    else // ERRORE
+    else 
     {
         perror("SERVER Error: Failed to get the result of the user search from the server");
         exit(EXIT_FAILURE);

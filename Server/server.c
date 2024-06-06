@@ -1,12 +1,14 @@
 #define _POSIX_C_SOURCE 200809L
-#define MAX_USER_CHAR 128
+#define MAX_USER_CHAR 32
 #define MAX_PW_CHAR 32
 #define MAX_REQUEST_SIZE (64 * 1024)
 #define NONCE_LEN 16
 #define COMMAND_DIM 100
 #define MAX_RESULT_CHAR 16
 #define CIPHER_LENGTH 256
+#define IV_LENGTH 16
 #include <time.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <errno.h>
@@ -38,6 +40,22 @@ typedef struct ACCOUNT
 
 } ACCOUNT;
 
+unsigned char *convertNumberToString(int number)
+{
+    // Determina la lunghezza della stringa necessaria per contenere il numero
+    int length = snprintf(NULL, 0, "%d", number);
+    // Alloca memoria per la stringa
+    unsigned char *str = malloc(length + 1);
+    if (str == NULL)
+    {
+        fprintf(stderr, "Errore: Impossibile allocare memoria\n");
+        exit(EXIT_FAILURE);
+    }
+    // Converte il numero in una stringa
+    snprintf((char *)str, length + 1, "%d", number);
+    return str;
+}
+
 void handler(int signo)
 {
     int status;
@@ -54,21 +72,22 @@ void safe_exit(int sd)
     pthread_exit(NULL);
 }
 
-int client_control(int ns) // ritorna 1 se il client e' effettivamente presente nel DB
+int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 1 se il client e' effettivamente presente nel DB
 {
     // --- RICEZIONE DEL NOME UTENTE DA CONTROLLARE TRA QUELLI REGISTRATI ---
 
-    char user[MAX_USER_CHAR];
-    ssize_t bytes_rcv = recv(ns, user, sizeof(user), 0);
+    unsigned char cipher_user[CIPHER_LENGTH];
+    ssize_t bytes_received = recv(ns, cipher_user, sizeof(cipher_user), 0);
 
-    if (bytes_rcv < 0)
+    int user_len = decrypt_data(cipher_user, bytes_received, K_ab, NULL, (unsigned char *)user);
+
+    if (bytes_received < 0)
     {
         perror("Errore recv");
         close(ns);
         pthread_exit(NULL);
     }
 
-    int user_len = strlen(user);
     user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio
 
     // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
@@ -107,7 +126,7 @@ int login(char *user, char *pw) // ritorna 1 se l'utente ha effettuato il login 
     return 0;
 }
 
-unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzionale (da usare solo se si effettua il login)
+unsigned char *handshake(int ns, unsigned int *k_len, char *name)
 {
     /*
      (CLIENT HANDSHAKE PROTOCOL)
@@ -488,17 +507,16 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name) // name opzion
 
 void *secureConnection(void *old_sd)
 {
-    char *user = "";
-    char *pw = "";
+    ACCOUNT account;
     int sd = *((int *)old_sd);
     unsigned int key_len = 0;
     unsigned char result[MAX_RESULT_CHAR];
     ssize_t bytes_sent;
     int err;
 
-    unsigned char *K_ab = handshake(sd, &key_len, user);
+    unsigned char *K_ab = handshake(sd, &key_len, (char *)account.username);
 
-    err = client_control(sd);
+    err = client_control(sd, (unsigned char *)account.username, K_ab);
 
     if (err == 1) // client registrato
     {
@@ -514,28 +532,34 @@ void *secureConnection(void *old_sd)
     }
 
     // vettore iv
+
+    /*unsigned char iv[17];
+    generate_numeric_nonce(iv);
+    iv[16] = '\0';
+    puts(iv);*/
+
     srand(time(NULL));
-    int iv = abs(rand() % 1000000);
-    unsigned char iv_stringa[16];
-    sprintf((char *)iv_stringa, "%d", iv);
-    puts(iv_stringa);
+    int iv_num;
+    iv_num = abs(rand() % 1000000);
+
+    unsigned char *iv_string = convertNumberToString(iv_num);
+
+    unsigned char iv[IV_LENGTH];
+    memset(iv, 0, IV_LENGTH);
+    strncpy((char *)iv, (char *)iv_string, IV_LENGTH);
 
     unsigned char cipher_result[CIPHER_LENGTH];
 
-    result[sizeof(result)] = '\0';
-    puts(result);
-
-    int ct_result_len = encrypt_data(result, sizeof(result), K_ab, NULL, cipher_result);
-
-    puts(cipher_result);
+    int ct_result_len = encrypt_data(result, sizeof(result), K_ab, NULL, cipher_result); // NULL da sostituire con IV, non funziona in nessun modo
 
     bytes_sent = send(sd, cipher_result, ct_result_len, 0);
 
     if (bytes_sent < 0)
     {
         perror("SERVER Error: Result of the search of the username -> send failure.\n");
-        free(user);
-        free(pw);
+        free(account.email);
+        free(account.password);
+        free(account.username);
         safe_exit(sd);
     }
 
