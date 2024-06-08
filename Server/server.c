@@ -40,22 +40,6 @@ typedef struct ACCOUNT
 
 } ACCOUNT;
 
-unsigned char *convertNumberToString(int number)
-{
-    // Determina la lunghezza della stringa necessaria per contenere il numero
-    int length = snprintf(NULL, 0, "%d", number);
-    // Alloca memoria per la stringa
-    unsigned char *str = malloc(length + 1);
-    if (str == NULL)
-    {
-        fprintf(stderr, "Errore: Impossibile allocare memoria\n");
-        exit(EXIT_FAILURE);
-    }
-    // Converte il numero in una stringa
-    snprintf((char *)str, length + 1, "%d", number);
-    return str;
-}
-
 void handler(int signo)
 {
     int status;
@@ -76,19 +60,57 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
 {
     // --- RICEZIONE DEL NOME UTENTE DA CONTROLLARE TRA QUELLI REGISTRATI ---
 
-    unsigned char cipher_user[CIPHER_LENGTH];
+    unsigned char cipher_user[IV_LENGTH + CIPHER_LENGTH];
     ssize_t bytes_received = recv(ns, cipher_user, sizeof(cipher_user), 0);
+    unsigned char iv[IV_LENGTH];
 
-    int user_len = decrypt_data(cipher_user, bytes_received, K_ab, NULL, (unsigned char *)user);
+    printf("Bytes ricevuti: %zd\n", bytes_received);
 
-    if (bytes_received < 0)
+    if (bytes_received <= 0)
     {
         perror("Errore recv");
         close(ns);
         pthread_exit(NULL);
     }
 
-    user[user_len - 1] = '\0'; // aggiungo il char terminatore al posto dell'invio
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_user, IV_LENGTH);
+
+    // Calcola la lunghezza effettiva del ciphertext
+    size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Debug: Visualizza l'IV ricevuto
+    printf("IV ricevuto: ");
+    for (int i = 0; i < IV_LENGTH; i++)
+    {
+        printf("%02x", iv[i]);
+    }
+    printf("\n");
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_user, cipher_user + IV_LENGTH, ciphertext_len);
+
+    // Debug: Visualizza il ciphertext prima della decrittazione
+    printf("Ciphertext ricevuto (%lu bytes): ", ciphertext_len);
+    for (size_t i = 0; i < ciphertext_len; i++)
+    {
+        printf("%02x", cipher_user[i]);
+    }
+    printf("\n");
+
+    int user_len = decrypt_data(cipher_user, ciphertext_len, K_ab, iv, user);
+
+    // Verifica la lunghezza del testo decriptato
+    if (user_len < 0)
+    {
+        fprintf(stderr, "Errore nella decrittazione dei dati.\n");
+        close(ns);
+        pthread_exit(NULL);
+    }
+
+    user[user_len] = '\0';
+
+    printf("Username decriptato (%d bytes): %s\n", user_len, user);
 
     // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
 
@@ -108,7 +130,7 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
     }
     else if (result == 256)
     {
-        puts("L'utente attuale non e' registrato.");
+        puts("L'utente non e' registrato.\n");
         return 0;
     }
     else
@@ -505,6 +527,63 @@ unsigned char *handshake(int ns, unsigned int *k_len, char *name)
     return session_key;
 }
 
+void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
+{
+    unsigned char cipher_email[IV_LENGTH + CIPHER_LENGTH];
+    unsigned char iv[IV_LENGTH];
+
+    ssize_t bytes_received = recv(sd, cipher_email, sizeof(cipher_email), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("CLIENT Error: Failed to get the result of the user search from the server\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_email, IV_LENGTH);
+
+    // Calcola la lunghezza effettiva del ciphertext
+    size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_email, cipher_email + IV_LENGTH, ciphertext_len);
+
+    int ct_result_len = decrypt_data(cipher_email, ciphertext_len, K_ab, iv, (unsigned char *)email);
+
+    email[ciphertext_len] = '\0';
+
+    unsigned char cipher_pw[CIPHER_LENGTH];
+
+    bytes_received = recv(sd, cipher_pw, sizeof(cipher_pw), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("CLIENT Error: Failed to get the result of the user search from the server\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_pw, IV_LENGTH);
+
+    // Calcola la lunghezza effettiva del ciphertext
+    ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_pw, cipher_pw + IV_LENGTH, ciphertext_len);
+
+    // decrypting del risultato della ricerca dell'user nel DB
+
+    ct_result_len = decrypt_data(cipher_pw, ciphertext_len, K_ab, iv, (unsigned char *)pw);
+
+    pw[ciphertext_len] = '\0';
+
+    puts(email);
+    puts(pw);
+}
+
 void *secureConnection(void *old_sd)
 {
     ACCOUNT account;
@@ -514,7 +593,7 @@ void *secureConnection(void *old_sd)
     ssize_t bytes_sent;
     int err;
 
-    unsigned char *K_ab = handshake(sd, &key_len, (char *)account.username);
+    unsigned char *K_ab = handshake(sd, &key_len, account.username);
 
     err = client_control(sd, (unsigned char *)account.username, K_ab);
 
@@ -531,30 +610,20 @@ void *secureConnection(void *old_sd)
         sprintf((char *)result, "%s", "error");
     }
 
-    // vettore iv
-
-    /*unsigned char iv[17];
-    generate_numeric_nonce(iv);
-    iv[16] = '\0';
-    puts(iv);*/
-
-    srand(time(NULL));
-    int iv_num;
-    iv_num = abs(rand() % 1000000);
-
-    unsigned char *iv_string = convertNumberToString(iv_num);
-
     unsigned char iv[IV_LENGTH];
-    memset(iv, 0, IV_LENGTH);
-    strncpy((char *)iv, (char *)iv_string, IV_LENGTH);
+    RAND_bytes(iv, IV_LENGTH);
 
     unsigned char cipher_result[CIPHER_LENGTH];
 
-    int ct_result_len = encrypt_data(result, sizeof(result), K_ab, NULL, cipher_result); // NULL da sostituire con IV, non funziona in nessun modo
+    int ct_result_len = encrypt_data(result, strlen((char *)result), K_ab, iv, cipher_result);
 
-    bytes_sent = send(sd, cipher_result, ct_result_len, 0);
+    unsigned char message_to_send[IV_LENGTH + ct_result_len];
+    memcpy(message_to_send, iv, IV_LENGTH);
+    memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
 
-    if (bytes_sent < 0)
+    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+    if (bytes_sent <= 0)
     {
         perror("SERVER Error: Result of the search of the username -> send failure.\n");
         free(account.email);
@@ -562,6 +631,8 @@ void *secureConnection(void *old_sd)
         free(account.username);
         safe_exit(sd);
     }
+
+    registration(sd, account.email, account.username, account.password, K_ab);
 
     safe_exit(sd);
     return 0;

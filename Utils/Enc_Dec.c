@@ -3,8 +3,8 @@
 int encrypt_data(const unsigned char *plaintext, int plaintext_len, const unsigned char *key, unsigned char *iv, unsigned char *ciphertext)
 {
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-  int len;
-  int ciphertext_len;
+  int len = 0;
+  int ciphertext_len = 0;
 
   if (!EVP_EncryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
   {
@@ -33,8 +33,8 @@ int encrypt_data(const unsigned char *plaintext, int plaintext_len, const unsign
 int decrypt_data(const unsigned char *ciphertext, int ciphertext_len, const unsigned char *key, unsigned char *iv, unsigned char *plaintext)
 {
   EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-  int len;
-  int plaintext_len;
+  int len = 0;
+  int plaintext_len = 0;
 
   if (!EVP_DecryptInit_ex(ctx, EVP_aes_128_cbc(), NULL, key, iv))
   {
@@ -58,4 +58,20 @@ int decrypt_data(const unsigned char *ciphertext, int ciphertext_len, const unsi
 
   EVP_CIPHER_CTX_free(ctx);
   return plaintext_len;
+}
+
+unsigned char *convertNumberToString(int number)
+{
+  // Determina la lunghezza della stringa necessaria per contenere il numero
+  int length = snprintf(NULL, 0, "%d", number);
+  // Alloca memoria per la stringa
+  unsigned char *str = malloc(length + 1);
+  if (str == NULL)
+  {
+    fprintf(stderr, "Errore: Impossibile allocare memoria\n");
+    exit(EXIT_FAILURE);
+  }
+  // Converte il numero in una stringa
+  snprintf((char *)str, length + 1, "%d", number);
+  return str;
 }

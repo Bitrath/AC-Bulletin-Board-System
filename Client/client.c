@@ -4,7 +4,8 @@
 #define MAX_USER_CHAR 32
 #define MAX_PW_CHAR 32
 #define MAX_RESULT_CHAR 16
-#define CIPHER_LENGTH 128
+#define CIPHER_LENGTH 256
+#define IV_LENGTH 16
 #include <netdb.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -12,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <regex.h>
 #include "../Utils/rxb.h"
 #include "../Utils/utils.h"
 #include <openssl/conf.h>
@@ -21,6 +23,7 @@
 #include <openssl/pem.h>
 #include "../Utils/Dif_Hel.h"
 #include "../Utils/digital_signature.h"
+#include "../Utils/Enc_Dec.h"
 
 typedef struct ACCOUNT
 {
@@ -29,6 +32,14 @@ typedef struct ACCOUNT
     char password[MAX_PW_CHAR];
 
 } ACCOUNT;
+
+void clean_stdin(void)
+{
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF)
+    {
+    }
+}
 
 void t_disconnect(int sd)
 {
@@ -50,25 +61,41 @@ void client_control(int sd, char *user, unsigned char *K_ab)
     }
     else if (strlen(user) >= MAX_USER_CHAR - 1)
     {
-        fprintf(stderr, "L'username inserito e' troppo lungo. (> 128 char)\n");
+        fprintf(stderr, "L'username inserito e' troppo lungo. (> 32 char)\n");
         exit(EXIT_FAILURE);
     }
 
     unsigned char cipher_user[CIPHER_LENGTH];
 
-    //////////////////////////
-    /// DA AGGIUNGERE L'IV ///
-    //////////////////////////
+    unsigned char iv[IV_LENGTH];
+    RAND_bytes(iv, IV_LENGTH);
 
-    int ct_user_len = encrypt_data((unsigned char *)user, sizeof(user), K_ab, NULL, cipher_user); // NULL da sostituire con IV, non funziona in nessun modo
+    int ct_user_len = encrypt_data((unsigned char *)user, strlen(user), K_ab, iv, cipher_user);
 
-    bytes_sent = send(sd, cipher_user, ct_user_len, 0);
+    // Invio dell'IV e del ciphertext
+    unsigned char message_to_send[IV_LENGTH + ct_user_len];
+    memcpy(message_to_send, iv, IV_LENGTH);
+    memcpy(message_to_send + IV_LENGTH, cipher_user, ct_user_len);
+
+    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_user_len, 0);
 
     if (bytes_sent < 0)
     {
         perror("Errore send");
         exit(EXIT_FAILURE);
     }
+
+    int user_len = decrypt_data(cipher_user, ct_user_len, K_ab, iv, (unsigned char *)user);
+
+    // Verifica la lunghezza del testo decriptato
+    if (user_len < 0)
+    {
+        fprintf(stderr, "Errore nella decrittazione dei dati.\n");
+        close(sd);
+        pthread_exit(NULL);
+    }
+
+    user[user_len] = '\0';
 }
 
 void *handshake(int sd)
@@ -453,13 +480,127 @@ void *handshake(int sd)
     return session_key;
 }
 
-void registration(char *email, char *user, char *pw)
+int is_valid_email(char *email) // da aggiustare, non worka
+{
+    regex_t regex;
+    int reti;
+    char msgbuf[100];
+    size_t email_len = strlen(email);
+    email[email_len - 1] = '\0';
+
+    // Definizione del pattern per una email, inclusi i simboli % e altri caratteri validi
+    const char *pattern = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$";
+
+    // Compila l'espressione regolare
+    reti = regcomp(&regex, pattern, REG_EXTENDED);
+    if (reti)
+    {
+        fprintf(stderr, "Could not compile regex\n");
+        return 0;
+    }
+
+    // Confronta l'email con il pattern
+    reti = regexec(&regex, email, 0, NULL, 0);
+    if (!reti)
+    {
+        regfree(&regex); // Libera la memoria allocata per l'espressione regolare
+        return 1;        // Email valida
+    }
+    else if (reti == REG_NOMATCH)
+    {
+        regfree(&regex); // Libera la memoria allocata per l'espressione regolare
+        return 0;        // Email non valida
+    }
+    else
+    {
+        regerror(reti, &regex, msgbuf, sizeof(msgbuf));
+        fprintf(stderr, "Regex match failed: %s\n", msgbuf);
+        regfree(&regex); // Libera la memoria allocata per l'espressione regolare
+        return 0;
+    }
+}
+
+void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 {
     ssize_t bytes_sent;
 
-    size_t email_len = sizeof(email) - 1;
+    // Encrypting delle credenziali da inviare al server //
 
-    size_t pw_len = sizeof(pw) - 1;
+    while (true)
+    {
+        puts("Inserire la email con cui registrarsi: ");
+        if (fgets(email, MAX_USER_CHAR, stdin) < 0)
+        {
+            fprintf(stderr, "Errore fgets email");
+            exit(EXIT_FAILURE);
+        }
+        else if (strlen(email) >= MAX_USER_CHAR - 1)
+        {
+            fprintf(stderr, "La email inserita e' troppo lunga. (> 32 char)\n");
+            clean_stdin(); // serve per evitare che nella fgets successiva mantenga i char inseriti che sforano la lunghezza di 32 byte
+            continue;
+        }
+        /*else if (is_valid_email(email)) // da aggiustare, non worka //
+        {
+            fprintf(stderr, "La email inserita non è valida.\n");
+            continue;
+        }*/
+        else
+            break;
+    }
+
+    while (true)
+    {
+        puts("Inserire la password: ");
+        if (fgets(pw, MAX_PW_CHAR, stdin) < 0)
+        {
+            fprintf(stderr, "Errore fgets pw");
+            exit(EXIT_FAILURE);
+        }
+        else if (strlen(pw) >= MAX_PW_CHAR - 1)
+        {
+            fprintf(stderr, "La password inserita e' troppo lunga. (> 32 char)\n");
+            clean_stdin();
+            continue;
+        }
+        else
+            break;
+    }
+
+    unsigned char iv[IV_LENGTH];
+    RAND_bytes(iv, IV_LENGTH);
+
+    unsigned char cipher_result[CIPHER_LENGTH];
+
+    int ct_result_len = encrypt_data((unsigned char *)email, strlen(email), K_ab, iv, cipher_result);
+
+    unsigned char message_to_send[IV_LENGTH + ct_result_len];
+    memcpy(message_to_send, iv, IV_LENGTH);
+    memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+    if (bytes_sent <= 0)
+    {
+        perror("Errore send");
+        exit(EXIT_FAILURE);
+    }
+
+    RAND_bytes(iv, IV_LENGTH);
+
+    ct_result_len = encrypt_data((unsigned char *)pw, strlen(pw), K_ab, iv, cipher_result);
+
+    message_to_send[IV_LENGTH + ct_result_len];
+    memcpy(message_to_send, iv, IV_LENGTH);
+    memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+    if (bytes_sent <= 0)
+    {
+        perror("Errore send");
+        exit(EXIT_FAILURE);
+    }
 }
 
 int main(int argc, char **argv)
@@ -513,9 +654,9 @@ int main(int argc, char **argv)
 
     client_control(sd, account.username, K_ab);
 
-    unsigned char cipher_result[CIPHER_LENGTH];
+    unsigned char cipher_result[CIPHER_LENGTH + IV_LENGTH];
     unsigned char result[MAX_RESULT_CHAR];
-    unsigned char *iv;
+    unsigned char iv[IV_LENGTH];
 
     ssize_t bytes_received = recv(sd, cipher_result, sizeof(cipher_result), 0);
 
@@ -526,9 +667,18 @@ int main(int argc, char **argv)
         exit(EXIT_FAILURE);
     }
 
-    cipher_result[bytes_received] = '\0';
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_result, IV_LENGTH);
 
-    int ct_result_len = decrypt_data(cipher_result, bytes_received, K_ab, iv, result);
+    // Calcola la lunghezza effettiva del ciphertext
+    size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_result, cipher_result + IV_LENGTH, ciphertext_len);
+
+    // decrypting del risultato della ricerca dell'user nel DB
+
+    int ct_result_len = decrypt_data(cipher_result, ciphertext_len, K_ab, iv, result);
 
     if (strcmp((char *)result, "found") == 0) // client registrato
     {
@@ -537,15 +687,14 @@ int main(int argc, char **argv)
     else if (strcmp((char *)result, "not_found") == 0) // client non registrato
     {
         char c;
-        account.username[strlen(account.username) - 1] = '\0';
 
         while (true)
         {
-            printf("Utente '%s' non registrato nell'archivio, procedere con la registrazione? Y - N ", account.username);
+            puts("Utente non registrato nell'archivio, procedere con la registrazione? Y - N ");
 
-            c = getchar(); // Legge un solo carattere
+            c = getchar(); // legge un solo carattere
 
-            // Svuota il buffer di input fino alla fine della riga
+            // svuota il buffer di input fino alla fine della riga
             while (getchar() != '\n')
                 ;
 
@@ -554,7 +703,7 @@ int main(int argc, char **argv)
                 // send registration request
 
                 puts("REGISTRAZIONE in corso...");
-                registration(account.email, account.username, account.password);
+                registration(sd, account.email, account.username, account.password, K_ab);
                 break; // da sostituire con la chiamata a funzione
             }
             else if (c == 'n' || c == 'N')
@@ -570,7 +719,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    else 
+    else
     {
         perror("SERVER Error: Failed to get the result of the user search from the server");
         exit(EXIT_FAILURE);
