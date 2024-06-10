@@ -4,8 +4,9 @@
 #define MAX_USER_CHAR 32
 #define MAX_PW_CHAR 32
 #define MAX_RESULT_CHAR 16
-#define CIPHER_LENGTH 256
+#define CIPHER_LENGTH 128
 #define IV_LENGTH 16
+#include <time.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -24,6 +25,31 @@
 #include "../Utils/Dif_Hel.h"
 #include "../Utils/digital_signature.h"
 #include "../Utils/Enc_Dec.h"
+
+// Funzione per stampare i dati in formato esadecimale
+void print_hex(const char *title, const unsigned char *data, size_t len)
+{
+    printf("%s:", title);
+    for (size_t i = 0; i < len; i++)
+    {
+        printf(" %02x", data[i]);
+    }
+    printf("\n");
+}
+
+// Funzione per stampare una stringa con spazi visibili
+void print_str_with_spaces(const char *title, const char *str, size_t len)
+{
+    printf("%s: '", title);
+    for (size_t i = 0; i < len; i++)
+    {
+        if (str[i] == '\0')
+            printf("\\0");
+        else
+            printf("%c", str[i]);
+    }
+    printf("'\n");
+}
 
 typedef struct ACCOUNT
 {
@@ -84,18 +110,6 @@ void client_control(int sd, char *user, unsigned char *K_ab)
         perror("Errore send");
         exit(EXIT_FAILURE);
     }
-
-    int user_len = decrypt_data(cipher_user, ct_user_len, K_ab, iv, (unsigned char *)user);
-
-    // Verifica la lunghezza del testo decriptato
-    if (user_len < 0)
-    {
-        fprintf(stderr, "Errore nella decrittazione dei dati.\n");
-        close(sd);
-        pthread_exit(NULL);
-    }
-
-    user[user_len] = '\0';
 }
 
 void *handshake(int sd)
@@ -570,15 +584,15 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     unsigned char iv[IV_LENGTH];
     RAND_bytes(iv, IV_LENGTH);
 
-    unsigned char cipher_result[CIPHER_LENGTH];
+    unsigned char cipher_email[CIPHER_LENGTH];
 
-    int ct_result_len = encrypt_data((unsigned char *)email, strlen(email), K_ab, iv, cipher_result);
+    int ct_email_len = encrypt_data((unsigned char *)email, strlen(email), K_ab, iv, cipher_email);
 
-    unsigned char message_to_send[IV_LENGTH + ct_result_len];
-    memcpy(message_to_send, iv, IV_LENGTH);
-    memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+    unsigned char email_to_send[IV_LENGTH + ct_email_len];
+    memcpy(email_to_send, iv, IV_LENGTH);
+    memcpy(email_to_send + IV_LENGTH, cipher_email, ct_email_len);
 
-    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+    bytes_sent = send(sd, email_to_send, IV_LENGTH + ct_email_len, 0);
 
     if (bytes_sent <= 0)
     {
@@ -586,15 +600,18 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
         exit(EXIT_FAILURE);
     }
 
+    sleep(1); // altrimenti entrano in conflitto le due receive e si sovrappongono
+
     RAND_bytes(iv, IV_LENGTH);
+    unsigned char cipher_pw[CIPHER_LENGTH];
 
-    ct_result_len = encrypt_data((unsigned char *)pw, strlen(pw), K_ab, iv, cipher_result);
+    int ct_pw_len = encrypt_data((unsigned char *)pw, strlen(pw), K_ab, iv, cipher_pw);
 
-    message_to_send[IV_LENGTH + ct_result_len];
-    memcpy(message_to_send, iv, IV_LENGTH);
-    memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+    unsigned char pw_to_send[IV_LENGTH + ct_pw_len];
+    memcpy(pw_to_send, iv, IV_LENGTH);
+    memcpy(pw_to_send + IV_LENGTH, cipher_pw, ct_pw_len);
 
-    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+    bytes_sent = send(sd, pw_to_send, IV_LENGTH + ct_pw_len, 0);
 
     if (bytes_sent <= 0)
     {
@@ -654,7 +671,7 @@ int main(int argc, char **argv)
 
     client_control(sd, account.username, K_ab);
 
-    unsigned char cipher_result[CIPHER_LENGTH + IV_LENGTH];
+    unsigned char cipher_result[CIPHER_LENGTH];
     unsigned char result[MAX_RESULT_CHAR];
     unsigned char iv[IV_LENGTH];
 

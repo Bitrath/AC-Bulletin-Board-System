@@ -60,18 +60,3 @@ int decrypt_data(const unsigned char *ciphertext, int ciphertext_len, const unsi
   return plaintext_len;
 }
 
-unsigned char *convertNumberToString(int number)
-{
-  // Determina la lunghezza della stringa necessaria per contenere il numero
-  int length = snprintf(NULL, 0, "%d", number);
-  // Alloca memoria per la stringa
-  unsigned char *str = malloc(length + 1);
-  if (str == NULL)
-  {
-    fprintf(stderr, "Errore: Impossibile allocare memoria\n");
-    exit(EXIT_FAILURE);
-  }
-  // Converte il numero in una stringa
-  snprintf((char *)str, length + 1, "%d", number);
-  return str;
-}
