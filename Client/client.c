@@ -540,8 +540,6 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     // Encrypting delle credenziali da inviare al server //
 
-    clean_stdin(); // in caso uno scriva prima che compaia la richiesta di inserire la email
-
     while (true)
     {
         puts("Inserire la email con cui registrarsi: ");

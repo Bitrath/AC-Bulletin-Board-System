@@ -31,6 +31,7 @@
 #include "../Utils/Dif_Hel.h"
 #include "../Utils/digital_signature.h"
 #include "../Utils/Enc_Dec.h"
+#include "../Utils/Hash.h"
 
 // Funzione per stampare i dati in formato esadecimale
 void print_hex(const unsigned char *data, size_t len)
@@ -156,7 +157,7 @@ int login(char *user, char *pw) // ritorna 1 se l'utente ha effettuato il login 
     return 0;
 }
 
-unsigned char *handshake(int ns, unsigned int *k_len, char *name)
+unsigned char *handshake(int ns, unsigned int *k_len)
 {
     /*
      (CLIENT HANDSHAKE PROTOCOL)
@@ -594,6 +595,23 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     pw[ct_result_len] = '\0';
 
     printf("Password ricevuta: %s\n", pw);
+
+    /////////////////////////////////
+    /// Hash della pw con il sale ///
+    /////////////////////////////////
+
+    unsigned char hashed_msg[EVP_MAX_MD_SIZE];
+    unsigned char *salt;
+    size_t salt_size = NONCE_LEN;
+
+    if (RAND_bytes(salt, salt_size) != 1) // temporaneo, da modificare
+    {
+        fprintf(stderr, "Errore nella generazione del salt.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    hash(pw, hashed_msg, salt, salt_size); 
+
 }
 
 void *secureConnection(void *old_sd)
@@ -605,7 +623,7 @@ void *secureConnection(void *old_sd)
     ssize_t bytes_sent;
     int err;
 
-    unsigned char *K_ab = handshake(sd, &key_len, account.username);
+    unsigned char *K_ab = handshake(sd, &key_len);
 
     err = client_control(sd, (unsigned char *)account.username, K_ab);
 
@@ -642,8 +660,6 @@ void *secureConnection(void *old_sd)
         free(account.username);
         safe_exit(sd);
     }
-    // ora funziona unicamente se l'utente vuole registrarsi ->
-    // necessita' di fare una send nel client con y o n e una recv nel server da mettere in un if
 
     unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
     char ans[MAX_RESULT_CHAR];
