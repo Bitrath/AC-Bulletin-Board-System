@@ -644,7 +644,42 @@ void *secureConnection(void *old_sd)
     }
     // ora funziona unicamente se l'utente vuole registrarsi ->
     // necessita' di fare una send nel client con y o n e una recv nel server da mettere in un if
-    registration(sd, account.email, account.username, account.password, K_ab);
+
+    unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+    char ans[MAX_RESULT_CHAR];
+
+    ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("SERVER error: Failed to get the encrypted password from the client.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_ans, IV_LENGTH);
+
+    // Calcola la lunghezza effettiva del ciphertext
+    size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+    print_hex(cipher_ans, ciphertext_len);
+
+    ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+
+    ans[ct_result_len] = '\0';
+
+    if (strcmp("registrazione", ans) == 0)
+    {
+        registration(sd, account.email, account.username, account.password, K_ab);
+    }
+    else if (strcmp("terminazione", ans) == 0)
+    {
+        puts("CLIENT disconnesso.");
+    }
 
     safe_exit(sd);
     return 0;

@@ -540,6 +540,8 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     // Encrypting delle credenziali da inviare al server //
 
+    clean_stdin(); // in caso uno scriva prima che compaia la richiesta di inserire la email
+
     while (true)
     {
         puts("Inserire la email con cui registrarsi: ");
@@ -575,6 +577,11 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
         {
             fprintf(stderr, "La password inserita e' troppo lunga. (> 32 char)\n");
             clean_stdin();
+            continue;
+        }
+        else if (strlen(pw) < 6)
+        {
+            fprintf(stderr, "La password inserita e' troppo corta. (< 6 char)\n");
             continue;
         }
         else
@@ -720,12 +727,57 @@ int main(int argc, char **argv)
                 // send registration request
 
                 puts("REGISTRAZIONE in corso...");
+                unsigned char iv[IV_LENGTH];
+                RAND_bytes(iv, IV_LENGTH);
+                char ans[MAX_RESULT_CHAR];
+                unsigned char cipher_ans[CIPHER_LENGTH];
+
+                sprintf(ans, "registrazione");
+
+                int ct_ans_len = encrypt_data((unsigned char *)ans, strlen(ans), K_ab, iv, cipher_ans);
+
+                // Invio dell'IV e del ciphertext
+                unsigned char message_to_send[IV_LENGTH + ct_ans_len];
+                memcpy(message_to_send, iv, IV_LENGTH);
+                memcpy(message_to_send + IV_LENGTH, cipher_ans, ct_ans_len);
+
+                ssize_t bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_ans_len, 0);
+
+                if (bytes_sent < 0)
+                {
+                    perror("Errore send");
+                    exit(EXIT_FAILURE);
+                }
+                sleep(1);
                 registration(sd, account.email, account.username, account.password, K_ab);
                 break; // da sostituire con la chiamata a funzione
             }
             else if (c == 'n' || c == 'N')
             {
                 puts("Terminazione Comunicazione.");
+
+                unsigned char iv[IV_LENGTH];
+                RAND_bytes(iv, IV_LENGTH);
+                char ans[MAX_RESULT_CHAR];
+                unsigned char cipher_ans[CIPHER_LENGTH];
+
+                sprintf(ans, "terminazione");
+
+                int ct_ans_len = encrypt_data((unsigned char *)ans, strlen(ans), K_ab, iv, cipher_ans);
+
+                // Invio dell'IV e del ciphertext
+                unsigned char message_to_send[IV_LENGTH + ct_ans_len];
+                memcpy(message_to_send, iv, IV_LENGTH);
+                memcpy(message_to_send + IV_LENGTH, cipher_ans, ct_ans_len);
+
+                ssize_t bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_ans_len, 0);
+
+                if (bytes_sent < 0)
+                {
+                    perror("Errore send");
+                    exit(EXIT_FAILURE);
+                }
+
                 close(sd);
                 exit(EXIT_SUCCESS);
             }
