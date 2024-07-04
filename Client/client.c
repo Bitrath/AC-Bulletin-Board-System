@@ -542,7 +542,7 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     while (true)
     {
-        puts("Inserire la email con cui registrarsi: ");
+        puts("Inserire la email: ");
         if (fgets(email, MAX_USER_CHAR, stdin) < 0)
         {
             fprintf(stderr, "Errore fgets email");
@@ -700,8 +700,8 @@ int main(int argc, char **argv)
 
     if (strcmp((char *)result, "found") == 0) // client registrato
     {
-        puts("Client registrato, procedo con il login...");
-        
+        puts("Client registrato, login in corso...");
+        registration(sd, account.email, account.username, account.password, K_ab);
     }
     else if (strcmp((char *)result, "not_found") == 0) // client non registrato
     {

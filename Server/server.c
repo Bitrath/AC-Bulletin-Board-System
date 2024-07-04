@@ -7,6 +7,7 @@
 #define MAX_RESULT_CHAR 16
 #define CIPHER_LENGTH 128
 #define IV_LENGTH 16
+#define MAX_LINE_LENGTH 256
 #include <time.h>
 #include <math.h>
 #include <stdio.h>
@@ -118,7 +119,6 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
     }
 
     user[user_len] = '\0';
-    print_hex(cipher_user, ciphertext_len);
     printf("User ricevuto: %s\n", (char *)user);
 
     // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
@@ -144,14 +144,6 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
         puts("Errore durante la ricerca nel database del nome utente.");
         return -1;
     }
-}
-
-int login(char *user, char *pw) // ritorna 1 se l'utente ha effettuato il login con successo
-{
-    // il nome utente lo abbiamo gia' dal client_control
-
-    // dobbiamo ricevere la password cifrata
-    return 0;
 }
 
 unsigned char *handshake(int ns, unsigned int *k_len)
@@ -569,6 +561,161 @@ void binToHex(const unsigned char *bin, size_t len, char *output)
     output[len * 2] = '\0'; // Termina la stringa esadecimale
 }
 
+char *find_salt(const char *filename, const char *username)
+{
+    FILE *file = fopen(filename, "r");
+    if (!file)
+    {
+        perror("Errore nell'apertura del file");
+        return NULL;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    char salt[MAX_LINE_LENGTH];
+    char user[MAX_LINE_LENGTH];
+
+    while (fgets(line, sizeof(line), file))
+    {
+
+        // Rimuove il carattere di nuova linea se presente
+        line[strcspn(line, "\n")] = '\0';
+
+        // Usa sscanf per separare il salt e l'utente
+        if (sscanf(line, "%s %s", salt, user) == 2)
+        {
+            if (strcmp(user, username) == 0)
+            {
+                fclose(file);
+                // Crea una copia del salt trovato
+                char *found_salt = strdup(salt);
+                return found_salt;
+            }
+        }
+        else
+        {
+            printf("Errore nel parsing della linea: '%s'\n", line);
+        }
+    }
+
+    fclose(file);
+    printf("Utente '%s' non trovato.\n", username);
+    return NULL; // Utente non trovato
+}
+
+char *find_hashed_pw(const char *filename, const char *hashed_pw)
+{
+    FILE *file = fopen(filename, "r");
+    if (!file)
+    {
+        perror("Errore nell'apertura del file");
+        return NULL;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    char pw[MAX_LINE_LENGTH];
+    char user[MAX_LINE_LENGTH];
+
+    while (fgets(line, sizeof(line), file))
+    {
+
+        // Rimuove il carattere di nuova linea se presente
+        line[strcspn(line, "\n")] = '\0';
+
+        if (sscanf(line, "%s %s", pw, user) == 2)
+        {
+            if (strcmp(pw, hashed_pw) == 0)
+            {
+                fclose(file);
+                puts("Password accettata: login effettuato con successo.");
+                // Crea una copia del salt trovato
+                char *found_pw = strdup(pw);
+                return found_pw;
+            }
+        }
+        else
+        {
+            printf("Errore nel parsing della linea: '%s'\n", line);
+        }
+    }
+
+    fclose(file);
+    printf("Password hashata '%s' non trovato.\n", hashed_pw);
+    return NULL;
+}
+
+void login(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
+{
+    unsigned char cipher_email[CIPHER_LENGTH + IV_LENGTH];
+    unsigned char iv[IV_LENGTH];
+
+    ssize_t bytes_received = recv(sd, cipher_email, sizeof(cipher_email), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("SERVER error: Failed to get the encrypted email from the client.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_email, IV_LENGTH);
+
+    // Calcola la salt_len effettiva del ciphertext
+    size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_email, cipher_email + IV_LENGTH, ciphertext_len);
+
+    int ct_result_len = decrypt_data(cipher_email, ciphertext_len, K_ab, iv, (unsigned char *)email);
+
+    email[ct_result_len] = '\0';
+    printf("Email ricevuta: %s\n", email);
+
+    sleep(1); // altrimenti entrano in conflitto le due send e si sovrappongono
+
+    unsigned char cipher_pw[CIPHER_LENGTH + IV_LENGTH];
+
+    bytes_received = recv(sd, cipher_pw, sizeof(cipher_pw), 0);
+
+    if (bytes_received < 0)
+    {
+        perror("SERVER error: Failed to get the encrypted password from the client.\n");
+        close(sd);
+        exit(EXIT_FAILURE);
+    }
+
+    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+    memcpy(iv, cipher_pw, IV_LENGTH);
+
+    // Calcola la salt_len effettiva del ciphertext
+    ciphertext_len = bytes_received - IV_LENGTH;
+
+    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+    memcpy(cipher_pw, cipher_pw + IV_LENGTH, ciphertext_len);
+
+    ct_result_len = decrypt_data(cipher_pw, ciphertext_len, K_ab, iv, (unsigned char *)pw);
+
+    pw[ct_result_len] = '\0';
+
+    printf("Password ricevuta: %s\n", pw);
+
+    // trovo il salt corrispondente all'utente per poter poi hashare la password inserita dall'utente per
+    // confrontarla con quella in archivio.
+    const char *filename = "Server-Wallet/User_Credentials/user_salt.txt";
+    user[strlen(user) - 1] = '\0'; // tolgo il newline
+    char *salt = find_salt(filename, user);
+    size_t salt_size = NONCE_LEN;
+
+    // hashing della password e conversione in hex
+    unsigned char hashed_msg[EVP_MAX_MD_SIZE];
+    hash(pw, hashed_msg, (unsigned char *)salt, salt_size);
+    char hashed_msg_hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    binToHex(hashed_msg, SHA256_DIGEST_LENGTH, hashed_msg_hex);
+
+    filename = "Server-Wallet/User_Credentials/user_pass_hash.txt";
+    char *stored_pw = find_hashed_pw(filename, hashed_msg_hex);
+}
+
 void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 {
     unsigned char cipher_email[CIPHER_LENGTH + IV_LENGTH];
@@ -647,14 +794,12 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     char hashed_msg_hex[SHA256_DIGEST_LENGTH * 2 + 1];
     binToHex(hashed_msg, SHA256_DIGEST_LENGTH, hashed_msg_hex);
-    puts(hashed_msg_hex);
 
     char *file = "Server-Wallet/User_Credentials/user_salt.txt";
     addFile(file, salt_hex, user);
 
     file = "Server-Wallet/User_Credentials/user_pass_hash.txt";
     addFile(file, hashed_msg_hex, user);
-    
 }
 
 void *secureConnection(void *old_sd)
@@ -673,71 +818,89 @@ void *secureConnection(void *old_sd)
     if (err == 1) // client registrato
     {
         sprintf((char *)result, "%s", "found");
+        unsigned char iv[IV_LENGTH];
+        RAND_bytes(iv, IV_LENGTH);
+
+        unsigned char cipher_result[CIPHER_LENGTH];
+        int ct_result_len = encrypt_data(result, strlen((char *)result), K_ab, iv, cipher_result);
+
+        unsigned char message_to_send[IV_LENGTH + ct_result_len];
+        memcpy(message_to_send, iv, IV_LENGTH);
+        memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+        bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+        if (bytes_sent <= 0)
+        {
+            perror("SERVER Error: Result of the search of the username -> send failure.\n");
+            free(account.email);
+            free(account.password);
+            free(account.username);
+            safe_exit(sd);
+        }
+        login(sd, account.email, account.username, account.password, K_ab);
     }
     else if (err == 0) // client non registrato
     {
         sprintf((char *)result, "%s", "not_found");
+        unsigned char iv[IV_LENGTH];
+        RAND_bytes(iv, IV_LENGTH);
+
+        unsigned char cipher_result[CIPHER_LENGTH];
+        int ct_result_len = encrypt_data(result, strlen((char *)result), K_ab, iv, cipher_result);
+
+        unsigned char message_to_send[IV_LENGTH + ct_result_len];
+        memcpy(message_to_send, iv, IV_LENGTH);
+        memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+        bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+        if (bytes_sent <= 0)
+        {
+            perror("SERVER Error: Result of the search of the username -> send failure.\n");
+            free(account.email);
+            free(account.password);
+            free(account.username);
+            safe_exit(sd);
+        }
+
+        unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+        char ans[MAX_RESULT_CHAR];
+
+        ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+        if (bytes_received < 0)
+        {
+            perror("SERVER error: Failed to get the encrypted password from the client.\n");
+            close(sd);
+            exit(EXIT_FAILURE);
+        }
+
+        // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+        memcpy(iv, cipher_ans, IV_LENGTH);
+
+        // Calcola la salt_len effettiva del ciphertext
+        size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+        // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+        memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+        ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+
+        ans[ct_result_len] = '\0';
+
+        if (strcmp("registrazione", ans) == 0)
+        {
+            registration(sd, account.email, account.username, account.password, K_ab);
+        }
+        else if (strcmp("terminazione", ans) == 0)
+        {
+            puts("CLIENT disconnesso.");
+        }
     }
     else // ERRORE
     {
         sprintf((char *)result, "%s", "error");
-    }
-
-    unsigned char iv[IV_LENGTH];
-    RAND_bytes(iv, IV_LENGTH);
-
-    unsigned char cipher_result[CIPHER_LENGTH];
-    int ct_result_len = encrypt_data(result, strlen((char *)result), K_ab, iv, cipher_result);
-
-    unsigned char message_to_send[IV_LENGTH + ct_result_len];
-    memcpy(message_to_send, iv, IV_LENGTH);
-    memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
-
-    bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
-
-    if (bytes_sent <= 0)
-    {
-        perror("SERVER Error: Result of the search of the username -> send failure.\n");
-        free(account.email);
-        free(account.password);
-        free(account.username);
-        safe_exit(sd);
-    }
-
-    unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
-    char ans[MAX_RESULT_CHAR];
-
-    ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
-
-    if (bytes_received < 0)
-    {
-        perror("SERVER error: Failed to get the encrypted password from the client.\n");
-        close(sd);
-        exit(EXIT_FAILURE);
-    }
-
-    // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
-    memcpy(iv, cipher_ans, IV_LENGTH);
-
-    // Calcola la salt_len effettiva del ciphertext
-    size_t ciphertext_len = bytes_received - IV_LENGTH;
-
-    // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
-    memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
-
-    print_hex(cipher_ans, ciphertext_len);
-
-    ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
-
-    ans[ct_result_len] = '\0';
-
-    if (strcmp("registrazione", ans) == 0)
-    {
-        registration(sd, account.email, account.username, account.password, K_ab);
-    }
-    else if (strcmp("terminazione", ans) == 0)
-    {
-        puts("CLIENT disconnesso.");
     }
 
     safe_exit(sd);
