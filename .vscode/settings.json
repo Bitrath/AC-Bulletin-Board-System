@@ -2,6 +2,10 @@
   "files.associations": {
     "utils.h": "c",
     "iostream": "cpp",
-    "__locale": "c"
+    "__locale": "c",
+    "array": "c",
+    "string": "c",
+    "string_view": "c",
+    "vector": "c"
   }
 }

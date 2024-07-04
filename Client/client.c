@@ -554,11 +554,6 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
             clean_stdin(); // serve per evitare che nella fgets successiva mantenga i char inseriti che sforano la lunghezza di 32 byte
             continue;
         }
-        /*else if (is_valid_email(email)) // da aggiustare, non worka //
-        {
-            fprintf(stderr, "La email inserita non è valida.\n");
-            continue;
-        }*/
         else
             break;
     }
@@ -623,7 +618,8 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
         perror("Errore send");
         exit(EXIT_FAILURE);
     }
-}
+
+    }
 
 int main(int argc, char **argv)
 {
@@ -705,6 +701,7 @@ int main(int argc, char **argv)
     if (strcmp((char *)result, "found") == 0) // client registrato
     {
         puts("Client registrato, procedo con il login...");
+        
     }
     else if (strcmp((char *)result, "not_found") == 0) // client non registrato
     {

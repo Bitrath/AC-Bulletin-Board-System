@@ -3,7 +3,7 @@
 #define MAX_PW_CHAR 32
 #define MAX_REQUEST_SIZE (64 * 1024)
 #define NONCE_LEN 16
-#define COMMAND_DIM 100
+#define COMMAND_DIM 256
 #define MAX_RESULT_CHAR 16
 #define CIPHER_LENGTH 128
 #define IV_LENGTH 16
@@ -34,7 +34,7 @@
 #include "../Utils/Hash.h"
 
 // Funzione per stampare i dati in formato esadecimale
-void print_hex(const unsigned char *data, size_t len)
+void print_hex(char *data, size_t len)
 {
     puts("Cipher ricevuto:");
     for (size_t i = 0; i < len; i++)
@@ -101,7 +101,7 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
     // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
     memcpy(iv, cipher_user, IV_LENGTH);
 
-    // Calcola la lunghezza effettiva del ciphertext
+    // Calcola la salt_len effettiva del ciphertext
     size_t ciphertext_len = bytes_received - IV_LENGTH;
 
     // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
@@ -109,7 +109,7 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
 
     int user_len = decrypt_data(cipher_user, ciphertext_len, K_ab, iv, user);
 
-    // Verifica la lunghezza del testo decriptato
+    // Verifica la salt_len del testo decriptato
     if (user_len < 0)
     {
         fprintf(stderr, "Errore nella decrittazione dei dati.\n");
@@ -118,19 +118,16 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
     }
 
     user[user_len] = '\0';
-    print_hex(user, ciphertext_len);
+    print_hex(cipher_user, ciphertext_len);
     printf("User ricevuto: %s\n", (char *)user);
 
     // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
 
-    char command[COMMAND_DIM];
-    sprintf(command, "grep -qw '%s' utenti.txt", user); // grep silenziosa (senza output con -q)
-                                                        // e con solo parole cercate intere (-w)
-                                                        // gli '' servono per confermare una
-                                                        // corrispondenza esatta
+    char initial_command[COMMAND_DIM];
+    snprintf(initial_command, COMMAND_DIM, "grep -qw '%s' Server-Wallet/User_Credentials/user_pass_hash.txt", user);
+    // grep silenziosa (senza output con -q) e con solo parole cercate intere (-w) gli '' servono per confermare una corrispondenza esatta
 
-    int result = system(command); // Esecuzione del comando e controllo del valore di ritorno
-                                  // per vedere se l'user e' stato trovato
+    int result = system(initial_command); // Esecuzione del comando e controllo del valore di ritorno per vedere se l'user e' stato trovato
 
     if (result == 0)
     {
@@ -536,6 +533,42 @@ unsigned char *handshake(int ns, unsigned int *k_len)
     return session_key;
 }
 
+void addFile(char *nomeFile, char *salt, char *user)
+{
+    FILE *fd = fopen(nomeFile, "a");
+
+    if (fd == NULL)
+    {
+        printf("Errore nell'apertura del file %s\n", nomeFile);
+        return;
+    }
+    size_t salt_len = strlen(salt);
+    size_t user_len = strlen(user);
+
+    fwrite(salt, sizeof(char), salt_len, fd);
+    fwrite(" ", sizeof(char), 1, fd);
+    fwrite(user, sizeof(char), user_len, fd);
+
+    fclose(fd);
+}
+
+void hexToBytes(const char *hex, unsigned char *bytes, size_t size)
+{
+    for (size_t i = 0; i < size; i++)
+    {
+        sscanf(hex + 2 * i, "%2hhx", &bytes[i]);
+    }
+}
+
+void binToHex(const unsigned char *bin, size_t len, char *output)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        sprintf(output + (i * 2), "%02x", bin[i]);
+    }
+    output[len * 2] = '\0'; // Termina la stringa esadecimale
+}
+
 void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 {
     unsigned char cipher_email[CIPHER_LENGTH + IV_LENGTH];
@@ -553,13 +586,11 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
     memcpy(iv, cipher_email, IV_LENGTH);
 
-    // Calcola la lunghezza effettiva del ciphertext
+    // Calcola la salt_len effettiva del ciphertext
     size_t ciphertext_len = bytes_received - IV_LENGTH;
 
     // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
     memcpy(cipher_email, cipher_email + IV_LENGTH, ciphertext_len);
-
-    print_hex(cipher_email, ciphertext_len);
 
     int ct_result_len = decrypt_data(cipher_email, ciphertext_len, K_ab, iv, (unsigned char *)email);
 
@@ -582,13 +613,11 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
     memcpy(iv, cipher_pw, IV_LENGTH);
 
-    // Calcola la lunghezza effettiva del ciphertext
+    // Calcola la salt_len effettiva del ciphertext
     ciphertext_len = bytes_received - IV_LENGTH;
 
     // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
     memcpy(cipher_pw, cipher_pw + IV_LENGTH, ciphertext_len);
-
-    print_hex(cipher_pw, ciphertext_len);
 
     ct_result_len = decrypt_data(cipher_pw, ciphertext_len, K_ab, iv, (unsigned char *)pw);
 
@@ -604,14 +633,28 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     unsigned char *salt;
     size_t salt_size = NONCE_LEN;
 
-    if (RAND_bytes(salt, salt_size) != 1) // temporaneo, da modificare
+    if (RAND_bytes(salt, salt_size) != 1)
     {
         fprintf(stderr, "Errore nella generazione del salt.\n");
         exit(EXIT_FAILURE);
     }
 
-    hash(pw, hashed_msg, salt, salt_size); 
+    hash(pw, hashed_msg, salt, salt_size);
 
+    // Conversione del salt e dell'hash in formato esadecimale
+    char salt_hex[NONCE_LEN * 2 + 1];
+    binToHex(salt, NONCE_LEN, salt_hex);
+
+    char hashed_msg_hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    binToHex(hashed_msg, SHA256_DIGEST_LENGTH, hashed_msg_hex);
+    puts(hashed_msg_hex);
+
+    char *file = "Server-Wallet/User_Credentials/user_salt.txt";
+    addFile(file, salt_hex, user);
+
+    file = "Server-Wallet/User_Credentials/user_pass_hash.txt";
+    addFile(file, hashed_msg_hex, user);
+    
 }
 
 void *secureConnection(void *old_sd)
@@ -676,7 +719,7 @@ void *secureConnection(void *old_sd)
     // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
     memcpy(iv, cipher_ans, IV_LENGTH);
 
-    // Calcola la lunghezza effettiva del ciphertext
+    // Calcola la salt_len effettiva del ciphertext
     size_t ciphertext_len = bytes_received - IV_LENGTH;
 
     // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
