@@ -6,6 +6,7 @@
 #define MAX_RESULT_CHAR 16
 #define CIPHER_LENGTH 128
 #define IV_LENGTH 16
+#define OP_LEN 4
 #include <time.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <regex.h>
+#include <ctype.h>
 #include "../Utils/rxb.h"
 #include "../Utils/utils.h"
 #include <openssl/conf.h>
@@ -618,8 +620,86 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
         perror("Errore send");
         exit(EXIT_FAILURE);
     }
+}
 
+void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
+{
+    char op[OP_LEN];
+
+    while (true)
+    {
+        puts("Selezionare l'operazione da eseguire:");
+        puts("1) List n last available messages.\n2) Get msg by id.\n3) Add msg to BBS.");
+
+        if (fgets(op, sizeof(op), stdin) == NULL)
+        {
+            fprintf(stderr, "Errore nella lettura dell'input\n");
+            exit(EXIT_FAILURE);
+        }
+
+        op[1] = '\0';
+
+        if (strcmp("1", op) == 0)
+        {
+            char num[OP_LEN];
+            unsigned char iv[IV_LENGTH];
+
+            puts("Selezionare il numero di messaggi visualizzabili: (max 9)");
+
+            do
+            {
+                if (fgets(num, sizeof(num), stdin) == NULL)
+                {
+                    fprintf(stderr, "Errore nella lettura dell'input\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                num[1] = '\0';
+
+            } while (!(strlen(num) == 1 && isdigit(num[0]) && num[0] >= '1' && num[0] <= '9'));
+
+            char msg_to_send[MAX_RESULT_CHAR];
+            snprintf(msg_to_send, sizeof(msg_to_send), "list: %s", num);
+            puts(msg_to_send);
+
+            // Genera IV casuale
+            if (RAND_bytes(iv, IV_LENGTH) != 1)
+            {
+                fprintf(stderr, "Errore nella generazione dell'IV\n");
+                exit(EXIT_FAILURE);
+            }
+
+            unsigned char cipher_result[CIPHER_LENGTH];
+            int ct_result_len = encrypt_data(msg_to_send, strlen((char *)msg_to_send), K_ab, iv, cipher_result);
+
+            unsigned char message_to_send[IV_LENGTH + ct_result_len];
+            memcpy(message_to_send, iv, IV_LENGTH);
+            memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+            ssize_t bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+            if (bytes_sent <= 0)
+            {
+                perror("SERVER Error: Result of the search -> send failure.\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+        else if (strcmp("2", op) == 0)
+        {
+            puts("Get msg by id");
+            // Implementa qui la logica per "Get msg by id"
+        }
+        else if (strcmp("3", op) == 0)
+        {
+            puts("Add msg to BBS");
+            // Implementa qui la logica per "Add msg to BBS"
+        }
+        else
+        {
+            puts("Operazione non valida. Si prega di selezionare un'opzione tra 1, 2 e 3.");
+        }
     }
+}
 
 int main(int argc, char **argv)
 {
@@ -702,6 +782,44 @@ int main(int argc, char **argv)
     {
         puts("Client registrato, login in corso...");
         registration(sd, account.email, account.username, account.password, K_ab);
+
+        // controllo esito login
+
+        unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+        char ans[MAX_RESULT_CHAR];
+
+        ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+        if (bytes_received < 0)
+        {
+            perror("SERVER error: Failed to get the encrypted password from the client.\n");
+            close(sd);
+            exit(EXIT_FAILURE);
+        }
+
+        // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+        memcpy(iv, cipher_ans, IV_LENGTH);
+
+        // Calcola la salt_len effettiva del ciphertext
+        size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+        // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+        memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+        ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+
+        ans[ct_result_len] = '\0';
+
+        if (strcmp("SUCCESS", ans) == 0)
+        {
+            puts("CLIENT loggato con successo.");
+            vip_mode(sd, account.email, account.username, account.password, K_ab);
+        }
+        else if (strcmp("FAILURE", ans) == 0)
+        {
+            puts("CLIENT non riconosciuto: disconnesso.");
+            exit(EXIT_FAILURE);
+        }
     }
     else if (strcmp((char *)result, "not_found") == 0) // client non registrato
     {
@@ -745,7 +863,7 @@ int main(int argc, char **argv)
                 }
                 sleep(1);
                 registration(sd, account.email, account.username, account.password, K_ab);
-                break; // da sostituire con la chiamata a funzione
+                break;
             }
             else if (c == 'n' || c == 'N')
             {

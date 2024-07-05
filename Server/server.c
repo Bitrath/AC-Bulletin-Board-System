@@ -637,13 +637,12 @@ char *find_hashed_pw(const char *filename, const char *hashed_pw)
             printf("Errore nel parsing della linea: '%s'\n", line);
         }
     }
-
     fclose(file);
-    printf("Password hashata '%s' non trovato.\n", hashed_pw);
+    // printf("Password hashata '%s' non trovato.\n", hashed_pw);
     return NULL;
 }
 
-void login(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
+int login(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 {
     unsigned char cipher_email[CIPHER_LENGTH + IV_LENGTH];
     unsigned char iv[IV_LENGTH];
@@ -714,6 +713,11 @@ void login(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
     filename = "Server-Wallet/User_Credentials/user_pass_hash.txt";
     char *stored_pw = find_hashed_pw(filename, hashed_msg_hex);
+
+    if (stored_pw != NULL)
+        return 1;
+    else
+        return 0;
 }
 
 void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
@@ -802,6 +806,40 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     addFile(file, hashed_msg_hex, user);
 }
 
+void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
+{
+    while (true)
+    {
+        unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+        char ans[MAX_RESULT_CHAR];
+        unsigned char iv[IV_LENGTH];
+
+        ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+        if (bytes_received < 0)
+        {
+            perror("SERVER error: Failed to get the encrypted password from the client.\n");
+            close(sd);
+            exit(EXIT_FAILURE);
+        }
+
+        // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+        memcpy(iv, cipher_ans, IV_LENGTH);
+
+        // Calcola la salt_len effettiva del ciphertext
+        size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+        // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+        memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+        int ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+
+        ans[ct_result_len] = '\0';
+
+        puts(ans);
+    }
+}
+
 void *secureConnection(void *old_sd)
 {
     ACCOUNT account;
@@ -838,7 +876,40 @@ void *secureConnection(void *old_sd)
             free(account.username);
             safe_exit(sd);
         }
-        login(sd, account.email, account.username, account.password, K_ab);
+        int check = login(sd, account.email, account.username, account.password, K_ab);
+
+        // aggiornamento al client
+
+        RAND_bytes(iv, IV_LENGTH);
+
+        unsigned char cipher_ans[CIPHER_LENGTH];
+        char *ans;
+
+        if (check == 1)
+            ans = "SUCCESS";
+        else
+            ans = "FAILURE";
+
+        int ct_ans_len = encrypt_data((unsigned char *)ans, strlen(ans), K_ab, iv, cipher_ans);
+
+        unsigned char ans_to_send[IV_LENGTH + ct_ans_len];
+        memcpy(ans_to_send, iv, IV_LENGTH);
+        memcpy(ans_to_send + IV_LENGTH, cipher_ans, ct_ans_len);
+
+        bytes_sent = send(sd, ans_to_send, IV_LENGTH + ct_ans_len, 0);
+
+        if (bytes_sent <= 0)
+        {
+            perror("Errore send");
+            exit(EXIT_FAILURE);
+        }
+
+        if (check == 1)
+        {
+            vip_mode(sd, account.email, account.username, account.password, K_ab);
+        }
+        else
+            safe_exit(sd);
     }
     else if (err == 0) // client non registrato
     {
