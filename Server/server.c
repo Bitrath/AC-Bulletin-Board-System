@@ -5,9 +5,10 @@
 #define NONCE_LEN 16
 #define COMMAND_DIM 256
 #define MAX_RESULT_CHAR 16
-#define CIPHER_LENGTH 128
+#define CIPHER_LENGTH 4096
 #define IV_LENGTH 16
 #define MAX_LINE_LENGTH 256
+#define MAX_RETURN_COMMAND 4096
 #include <time.h>
 #include <math.h>
 #include <stdio.h>
@@ -806,6 +807,93 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     addFile(file, hashed_msg_hex, user);
 }
 
+char *list(const char *n)
+{
+
+    char command[COMMAND_DIM];
+    snprintf(command, sizeof(command), "tail -n %s Bulletin/bulletin.txt", n);
+
+    FILE *pipe = popen(command, "r");
+    if (!pipe)
+    {
+        perror("Errore nell'apertura del pipe per il comando");
+        return NULL;
+    }
+
+    char *output = (char *)malloc(MAX_RETURN_COMMAND);
+    if (!output)
+    {
+        perror("Errore nell'allocazione della memoria per l'output");
+        pclose(pipe);
+        return NULL;
+    }
+
+    output[0] = '\0';
+    char line[MAX_RETURN_COMMAND]; // Buffer per leggere ogni riga
+    while (fgets(line, sizeof(line), pipe) != NULL)
+    {
+        strcat(output, line); // Concatena la riga letta all'output
+    }
+
+    pclose(pipe); // Chiudi il pipe
+
+    return output;
+}
+
+void which_function(int sd, const char *command, unsigned char *K_ab)
+{
+    if (command[0] == 'l')
+    {
+        // Trova il delimitatore ':'
+        const char *delimiter = strstr(command, ":");
+        if (delimiter == NULL)
+        {
+            fprintf(stderr, "Formato del comando non valido: %s\n", command);
+            return;
+        }
+
+        // Separazione del comando dall'argomento della successiva function call list()
+        char cmd[MAX_LINE_LENGTH];
+        size_t cmd_length = delimiter - command;
+        strncpy(cmd, command, cmd_length);
+        cmd[cmd_length] = '\0';
+
+        // Estrazione dell'argomento (numero di righe)
+        const char *n = delimiter + 1;
+
+        if (strcmp(cmd, "list") == 0)
+        {
+            char *msg_to_send = list(n);
+            unsigned char iv[IV_LENGTH];
+
+            if (RAND_bytes(iv, IV_LENGTH) != 1)
+            {
+                fprintf(stderr, "Errore nella generazione dell'IV\n");
+                exit(EXIT_FAILURE);
+            }
+
+            unsigned char cipher_result[CIPHER_LENGTH];
+            int ct_result_len = encrypt_data((unsigned char *)msg_to_send, strlen(msg_to_send), K_ab, iv, cipher_result);
+
+            unsigned char message_to_send_IV[IV_LENGTH + ct_result_len];
+            memcpy(message_to_send_IV, iv, IV_LENGTH);
+            memcpy(message_to_send_IV + IV_LENGTH, cipher_result, ct_result_len);
+
+            ssize_t bytes_sent = send(sd, message_to_send_IV, IV_LENGTH + ct_result_len, 0);
+
+            if (bytes_sent <= 0)
+            {
+                perror("SERVER Error: Result of the search -> send failure.\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+        else
+        {
+            fprintf(stderr, "Comando non riconosciuto: %s\n", cmd);
+        }
+    }
+}
+
 void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 {
     while (true)
@@ -818,7 +906,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
         if (bytes_received < 0)
         {
-            perror("SERVER error: Failed to get the encrypted password from the client.\n");
+            perror("SERVER error: Failed to get the function from the client.\n");
             close(sd);
             exit(EXIT_FAILURE);
         }
@@ -837,6 +925,8 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
         ans[ct_result_len] = '\0';
 
         puts(ans);
+
+        which_function(sd, ans, K_ab);
     }
 }
 

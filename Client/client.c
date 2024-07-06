@@ -4,9 +4,10 @@
 #define MAX_USER_CHAR 32
 #define MAX_PW_CHAR 32
 #define MAX_RESULT_CHAR 16
-#define CIPHER_LENGTH 128
+#define CIPHER_LENGTH 4096
 #define IV_LENGTH 16
 #define OP_LEN 4
+#define MAX_RETURN_COMMAND 4096
 #include <time.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -29,14 +30,15 @@
 #include "../Utils/Enc_Dec.h"
 
 // Funzione per stampare i dati in formato esadecimale
-void print_hex(const char *title, const unsigned char *data, size_t len)
+void print_hex(char *data, size_t len)
 {
-    printf("%s:", title);
+    puts("Cipher ricevuto:");
     for (size_t i = 0; i < len; i++)
     {
-        printf(" %02x", data[i]);
+        printf("%02x ", data[i]);
     }
     printf("\n");
+    printf("Lunghezza cipher: %zu\n", len);
 }
 
 // Funzione per stampare una stringa con spazi visibili
@@ -658,11 +660,11 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
             } while (!(strlen(num) == 1 && isdigit(num[0]) && num[0] >= '1' && num[0] <= '9'));
 
-            char msg_to_send[MAX_RESULT_CHAR];
-            snprintf(msg_to_send, sizeof(msg_to_send), "list: %s", num);
-            puts(msg_to_send);
+            // INVIO LIST CON IL NUMERO DI RIGHE DA LEGGERE
 
-            // Genera IV casuale
+            char msg_to_send[MAX_RESULT_CHAR];
+            snprintf(msg_to_send, sizeof(msg_to_send), "list:%s", num);
+
             if (RAND_bytes(iv, IV_LENGTH) != 1)
             {
                 fprintf(stderr, "Errore nella generazione dell'IV\n");
@@ -670,7 +672,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
             }
 
             unsigned char cipher_result[CIPHER_LENGTH];
-            int ct_result_len = encrypt_data(msg_to_send, strlen((char *)msg_to_send), K_ab, iv, cipher_result);
+            int ct_result_len = encrypt_data((unsigned char *)msg_to_send, strlen(msg_to_send), K_ab, iv, cipher_result);
 
             unsigned char message_to_send[IV_LENGTH + ct_result_len];
             memcpy(message_to_send, iv, IV_LENGTH);
@@ -683,6 +685,37 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
                 perror("SERVER Error: Result of the search -> send failure.\n");
                 exit(EXIT_FAILURE);
             }
+
+            // RICEVO IL RISULTATO DI LIST CON GLI ULTIMI N MESSAGGI
+
+            unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+            char ans[MAX_RETURN_COMMAND];
+
+            ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+            if (bytes_received < 0)
+            {
+                perror("SERVER error: Failed to get the function from the client.\n");
+                close(sd);
+                exit(EXIT_FAILURE);
+            }
+
+            // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+            memcpy(iv, cipher_ans, IV_LENGTH);
+
+            // Calcola la salt_len effettiva del ciphertext
+            size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+            // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+            memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+            ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+            ans[ct_result_len] = '\0';
+
+
+            printf("\nUltimi %s messaggi pubblicati:\n", num);
+            puts(ans);
+            puts("");
         }
         else if (strcmp("2", op) == 0)
         {
