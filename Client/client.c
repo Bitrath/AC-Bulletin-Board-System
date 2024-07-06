@@ -8,6 +8,7 @@
 #define IV_LENGTH 16
 #define OP_LEN 4
 #define MAX_RETURN_COMMAND 4096
+#define ID_LEN 8
 #include <time.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -28,6 +29,23 @@
 #include "../Utils/Dif_Hel.h"
 #include "../Utils/digital_signature.h"
 #include "../Utils/Enc_Dec.h"
+
+int is_numeric(const char *str)
+{
+    if (str == NULL || *str == '\0')
+    {
+        return 0;
+    }
+
+    for (int i = 0; str[i] != '\0'; i++)
+    {
+        if (!isdigit(str[i]))
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
 
 // Funzione per stampare i dati in formato esadecimale
 void print_hex(char *data, size_t len)
@@ -643,7 +661,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
         if (strcmp("1", op) == 0)
         {
-            char num[OP_LEN];
+            char num[MAX_RESULT_CHAR];
             unsigned char iv[IV_LENGTH];
 
             puts("Selezionare il numero di messaggi visualizzabili: (max 9)");
@@ -658,12 +676,13 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
                 num[1] = '\0';
 
-            } while (!(strlen(num) == 1 && isdigit(num[0]) && num[0] >= '1' && num[0] <= '9'));
+            } while (!(strlen(num) == 1 && isdigit(num[0])));
 
             // INVIO LIST CON IL NUMERO DI RIGHE DA LEGGERE
 
             char msg_to_send[MAX_RESULT_CHAR];
             snprintf(msg_to_send, sizeof(msg_to_send), "list:%s", num);
+            puts(msg_to_send);
 
             if (RAND_bytes(iv, IV_LENGTH) != 1)
             {
@@ -712,15 +731,89 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
             ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
             ans[ct_result_len] = '\0';
 
-
             printf("\nUltimi %s messaggi pubblicati:\n", num);
             puts(ans);
             puts("");
         }
         else if (strcmp("2", op) == 0)
         {
-            puts("Get msg by id");
             // Implementa qui la logica per "Get msg by id"
+            puts("Inserire l'ID del messaggio da mostrare:");
+            char id[MAX_RESULT_CHAR];
+
+            while (true)
+            {
+                if (fgets(id, sizeof(id), stdin) == NULL)
+                {
+                    fprintf(stderr, "Errore nella lettura dell'input\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                id[strlen(id)] = '\0';
+
+                if (strlen(id) == ID_LEN)
+                {
+                    break;
+                }
+                puts("Inserire un id valido.");
+            }
+
+            // INVIO GET CON ID
+
+            unsigned char iv[IV_LENGTH];
+            char msg_to_send[MAX_RESULT_CHAR];
+            snprintf(msg_to_send, sizeof(msg_to_send), "get:%s", id);
+
+            if (RAND_bytes(iv, IV_LENGTH) != 1)
+            {
+                fprintf(stderr, "Errore nella generazione dell'IV\n");
+                exit(EXIT_FAILURE);
+            }
+
+            unsigned char cipher_result[CIPHER_LENGTH];
+            int ct_result_len = encrypt_data((unsigned char *)msg_to_send, strlen(msg_to_send), K_ab, iv, cipher_result);
+
+            unsigned char message_to_send[IV_LENGTH + ct_result_len];
+            memcpy(message_to_send, iv, IV_LENGTH);
+            memcpy(message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+            ssize_t bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_result_len, 0);
+
+            if (bytes_sent <= 0)
+            {
+                perror("SERVER Error: Result of the search -> send failure.\n");
+                exit(EXIT_FAILURE);
+            }
+
+            // RICEVO IL RISULTATO DI GET
+
+            unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+            char ans[MAX_RETURN_COMMAND];
+
+            ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+            if (bytes_received < 0)
+            {
+                perror("SERVER error: Failed to get the function from the client.\n");
+                close(sd);
+                exit(EXIT_FAILURE);
+            }
+
+            // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+            memcpy(iv, cipher_ans, IV_LENGTH);
+
+            // Calcola la salt_len effettiva del ciphertext
+            size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+            // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+            memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+            ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+            ans[ct_result_len] = '\0';
+
+            puts("\nMessaggio:");
+            puts(ans);
+            puts("");
         }
         else if (strcmp("3", op) == 0)
         {

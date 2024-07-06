@@ -809,7 +809,6 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
 char *list(const char *n)
 {
-
     char command[COMMAND_DIM];
     snprintf(command, sizeof(command), "tail -n %s Bulletin/bulletin.txt", n);
 
@@ -840,6 +839,37 @@ char *list(const char *n)
     return output;
 }
 
+char *get(const char *id)
+{
+    char command[COMMAND_DIM];
+    snprintf(command, sizeof(command), "grep %s Bulletin/bulletin.txt", id);
+
+    FILE *pipe = popen(command, "r");
+    if (!pipe)
+    {
+        perror("Errore nell'apertura del pipe per il comando");
+        return NULL;
+    }
+
+    char *output = (char *)malloc(MAX_RETURN_COMMAND);
+    if (!output)
+    {
+        perror("Errore nell'allocazione della memoria per l'output");
+        pclose(pipe);
+        return NULL;
+    }
+
+    output[0] = '\0';
+    if (fgets(output, MAX_RETURN_COMMAND, pipe) == NULL)
+    {
+        free(output);  
+        output = "Nessun riscontro per l'id ricercato."; 
+    }
+
+    pclose(pipe);
+    return output;
+}
+
 void which_function(int sd, const char *command, unsigned char *K_ab)
 {
     if (command[0] == 'l')
@@ -864,6 +894,56 @@ void which_function(int sd, const char *command, unsigned char *K_ab)
         if (strcmp(cmd, "list") == 0)
         {
             char *msg_to_send = list(n);
+            unsigned char iv[IV_LENGTH];
+
+            if (RAND_bytes(iv, IV_LENGTH) != 1)
+            {
+                fprintf(stderr, "Errore nella generazione dell'IV\n");
+                exit(EXIT_FAILURE);
+            }
+
+            unsigned char cipher_result[CIPHER_LENGTH];
+            int ct_result_len = encrypt_data((unsigned char *)msg_to_send, strlen(msg_to_send), K_ab, iv, cipher_result);
+
+            unsigned char message_to_send_IV[IV_LENGTH + ct_result_len];
+            memcpy(message_to_send_IV, iv, IV_LENGTH);
+            memcpy(message_to_send_IV + IV_LENGTH, cipher_result, ct_result_len);
+
+            ssize_t bytes_sent = send(sd, message_to_send_IV, IV_LENGTH + ct_result_len, 0);
+
+            if (bytes_sent <= 0)
+            {
+                perror("SERVER Error: Result of the search -> send failure.\n");
+                exit(EXIT_FAILURE);
+            }
+        }
+        else
+        {
+            fprintf(stderr, "Comando non riconosciuto: %s\n", cmd);
+        }
+    }
+    else if (command[0] == 'g')
+    {
+        char *delimiter = strstr(command, ":");
+        if (delimiter == NULL)
+        {
+            fprintf(stderr, "Formato del comando non valido: %s\n", command);
+            return;
+        }
+
+        // Separazione del comando dall'argomento della successiva function call list()
+        char cmd[MAX_LINE_LENGTH];
+        size_t cmd_length = delimiter - command;
+        strncpy(cmd, command, cmd_length);
+        cmd[cmd_length] = '\0';
+
+        // Estrazione dell'argomento (numero di righe)
+        char *id = delimiter + 1;
+        id[strlen(id) - 1] = '\0';
+
+        if (strcmp(cmd, "get") == 0)
+        {
+            char *msg_to_send = get(id);
             unsigned char iv[IV_LENGTH];
 
             if (RAND_bytes(iv, IV_LENGTH) != 1)
@@ -921,10 +1001,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
         memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
 
         int ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
-
         ans[ct_result_len] = '\0';
-
-        puts(ans);
 
         which_function(sd, ans, K_ab);
     }
