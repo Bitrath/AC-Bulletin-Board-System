@@ -659,11 +659,6 @@ char *verify_user_email(const char *filename, const char *input_user, const char
                 puts("Utente e email verificati con successo.");
                 return strdup(email);
             }
-
-            printf("Input email: %s\n", input_email);
-            printf("Stored email: %s\n", email);
-            printf("Input user: %s\n", input_user);
-            printf("Stored user: %s\n", user);
         }
         else
         {
@@ -1108,39 +1103,38 @@ void which_function(int sd, const char *command, unsigned char *K_ab)
                 exit(EXIT_FAILURE);
             }
         }
-        else
+    }
+    else
+    {
+        unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+        char ans[MAX_RESULT_CHAR];
+        unsigned char *iv;
+
+        ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+        if (bytes_received < 0)
         {
+            perror("SERVER error: Failed to get the encrypted password from the client.\n");
+            close(sd);
+            exit(EXIT_FAILURE);
+        }
 
-            unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
-            char ans[MAX_RESULT_CHAR];
-            unsigned char * iv;
+        // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+        memcpy(iv, cipher_ans, IV_LENGTH);
 
-            ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+        // Calcola la salt_len effettiva del ciphertext
+        size_t ciphertext_len = bytes_received - IV_LENGTH;
 
-            if (bytes_received < 0)
-            {
-                perror("SERVER error: Failed to get the encrypted password from the client.\n");
-                close(sd);
-                exit(EXIT_FAILURE);
-            }
+        // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+        memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
 
-            // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
-            memcpy(iv, cipher_ans, IV_LENGTH);
+        int ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
 
-            // Calcola la salt_len effettiva del ciphertext
-            size_t ciphertext_len = bytes_received - IV_LENGTH;
+        ans[ct_result_len] = '\0';
 
-            // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
-            memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
-
-            int ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
-
-            ans[ct_result_len] = '\0';
-
-            if (strcmp("terminazione", ans) == 0)
-            {
-                puts("CLIENT disconnesso.");
-            }
+        if (strcmp("terminazione", ans) == 0)
+        {
+            puts("CLIENT disconnesso.");
         }
     }
 }
@@ -1175,7 +1169,6 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
         ans[ct_result_len] = '\0';
 
         which_function(sd, ans, K_ab);
-        safe_exit(sd);
     }
 }
 

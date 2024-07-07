@@ -863,6 +863,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
             body[strlen(body) - 1] = '\0';
             user[strlen(user) - 1] = '\0';
+            puts(user);
 
             snprintf(msg_to_send, sizeof(msg_to_send), "%s, %s, %s, %s", id_hex, title, user, body);
 

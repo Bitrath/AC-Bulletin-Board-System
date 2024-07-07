@@ -9,4 +9,8 @@ f0f22d22, Spider-Man 2, kojima, A volte per fare la cosa giusta bisogna mostrare
 fc888283, Mulholland Drive, kojima, Silencio... No hay banda. | È tutto registrato. | È tutto un nastro. | È solo un'illusione.
 95ebd33a, Assassin's Creed, nicola, Nulla è reale, tutto è lecito.
 a5f54236, From Hell, sam, La discesa negli inferi di Londra.
-aae37a39, The Walking Dead, sa, Noi siamo i morti viventi.
+aae37a39, The Walking Dead, sam, Noi siamo i morti viventi.
+2178fd3e, Alien, sam, Nello spazio nessuno può sentirti urlare.
+525bba9e, Mr. Robot, sam, Democracy has been hacked.
+1469097e, Blade Runner, sam, Io ne ho viste cose che voi umani non potreste immaginarvi!
+35d1c0b5, Dune: Parte II, kojima, Possa il tuo coltello scheggiarsi e spezzarsi.
