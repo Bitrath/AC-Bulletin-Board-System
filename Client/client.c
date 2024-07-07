@@ -9,6 +9,8 @@
 #define OP_LEN 4
 #define MAX_RETURN_COMMAND 4096
 #define ID_LEN 8
+#define ID_LEN_HEX 4
+#define MAX_BODY 4000
 #include <time.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -71,6 +73,15 @@ void print_str_with_spaces(const char *title, const char *str, size_t len)
             printf("%c", str[i]);
     }
     printf("'\n");
+}
+
+void binToHex(const unsigned char *bin, size_t len, char *output)
+{
+    for (size_t i = 0; i < len; i++)
+    {
+        sprintf(output + (i * 2), "%02x", bin[i]);
+    }
+    output[len * 2] = '\0'; // Termina la stringa esadecimale
 }
 
 typedef struct ACCOUNT
@@ -739,23 +750,20 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
         {
             // Implementa qui la logica per "Get msg by id"
             puts("Inserire l'ID del messaggio da mostrare:");
-            char id[MAX_RESULT_CHAR];
+            char id[ID_LEN];
 
             while (true)
             {
-                if (fgets(id, sizeof(id), stdin) == NULL)
+                if (fgets(id, sizeof(id) * ID_LEN, stdin) == NULL)
                 {
                     fprintf(stderr, "Errore nella lettura dell'input\n");
                     exit(EXIT_FAILURE);
                 }
 
-                id[strlen(id)] = '\0';
-
-                if (strlen(id) == ID_LEN)
+                if (strlen(id) == ID_LEN + 1)
                 {
                     break;
                 }
-                puts("Inserire un id valido.");
             }
 
             // INVIO GET CON ID
@@ -817,8 +825,115 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
         }
         else if (strcmp("3", op) == 0)
         {
-            puts("Add msg to BBS");
-            // Implementa qui la logica per "Add msg to BBS"
+            puts("Inserire un nuovo messaggio in bacheca:");
+
+            unsigned char id[ID_LEN];
+            char id_hex[ID_LEN_HEX];
+            char title[MAX_USER_CHAR];
+            char author[MAX_USER_CHAR];
+            char body[MAX_BODY];
+            char msg_to_send[MAX_RETURN_COMMAND];
+
+            // creazione id (da aggiornare con verifica dell'unicità)
+
+            if (RAND_bytes(id, ID_LEN_HEX) != 1)
+            {
+                fprintf(stderr, "Errore nella generazione dell'IV\n");
+                exit(EXIT_FAILURE);
+            }
+
+            binToHex(id, ID_LEN_HEX, id_hex);
+
+            puts("Inserire il titolo:");
+
+            if (fgets(title, sizeof(title), stdin) == NULL)
+            {
+                fprintf(stderr, "Errore nella lettura dell'input\n");
+                exit(EXIT_FAILURE);
+            }
+
+            title[strlen(title) - 1] = '\0';
+
+            puts("Inserire l'autore:");
+
+            if (fgets(author, sizeof(author), stdin) == NULL)
+            {
+                fprintf(stderr, "Errore nella lettura dell'input\n");
+                exit(EXIT_FAILURE);
+            }
+
+            author[strlen(author) - 1] = '\0';
+
+            puts("Inserire il corpo del messaggio:");
+
+            if (fgets(body, sizeof(body), stdin) == NULL)
+            {
+                fprintf(stderr, "Errore nella lettura dell'input\n");
+                exit(EXIT_FAILURE);
+            }
+
+            body[strlen(body) - 1] = '\0';
+
+            snprintf(msg_to_send, sizeof(msg_to_send), "%s, %s, %s, %s", id_hex, title, author, body);
+
+            puts(msg_to_send);
+
+            // INVIO ADD CON MSG
+
+            unsigned char iv[IV_LENGTH];
+            char msg_to_send_add[MAX_RETURN_COMMAND];
+            snprintf(msg_to_send_add, sizeof(msg_to_send_add), "add:%s", msg_to_send);
+
+            if (RAND_bytes(iv, IV_LENGTH) != 1)
+            {
+                fprintf(stderr, "Errore nella generazione dell'IV\n");
+                exit(EXIT_FAILURE);
+            }
+
+            unsigned char cipher_result[CIPHER_LENGTH];
+            int ct_result_len = encrypt_data((unsigned char *)msg_to_send_add, strlen(msg_to_send_add), K_ab, iv, cipher_result);
+
+            unsigned char final_message_to_send[IV_LENGTH + ct_result_len];
+            memcpy(final_message_to_send, iv, IV_LENGTH);
+            memcpy(final_message_to_send + IV_LENGTH, cipher_result, ct_result_len);
+
+            ssize_t bytes_sent = send(sd, final_message_to_send, IV_LENGTH + ct_result_len, 0);
+
+            if (bytes_sent <= 0)
+            {
+                perror("CLIENT Error: Send failure.\n");
+                exit(EXIT_FAILURE);
+            }
+
+            // RICEZIONE RISPOSTA DAL SERVER
+
+            unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
+            char ans[MAX_RETURN_COMMAND];
+
+            ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
+
+            if (bytes_received < 0)
+            {
+                perror("SERVER error: Failed to get the function from the client.\n");
+                close(sd);
+                exit(EXIT_FAILURE);
+            }
+
+            // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
+            memcpy(iv, cipher_ans, IV_LENGTH);
+
+            // Calcola la salt_len effettiva del ciphertext
+            size_t ciphertext_len = bytes_received - IV_LENGTH;
+
+            // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
+            memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
+
+            ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
+            ans[ct_result_len] = '\0';
+
+            puts("\nMessaggio:");
+            puts(ans);
+            puts("");
         }
         else
         {
