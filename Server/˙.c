@@ -1113,7 +1113,7 @@ void which_function(int sd, const char *command, unsigned char *K_ab)
 
             unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
             char ans[MAX_RESULT_CHAR];
-            unsigned char * iv;
+            unsigned char * iv[IV_LENGTH];
 
             ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
 
@@ -1175,7 +1175,6 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
         ans[ct_result_len] = '\0';
 
         which_function(sd, ans, K_ab);
-        safe_exit(sd);
     }
 }
 

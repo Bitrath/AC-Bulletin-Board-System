@@ -660,7 +660,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
     while (true)
     {
         puts("Selezionare l'operazione da eseguire:");
-        puts("1) List n last available messages.\n2) Get msg by id.\n3) Add msg to BBS.\n4)Logout.");
+        puts("1) List n last available messages.\n2) Get msg by id.\n3) Add msg to BBS.\n4) Logout.");
 
         if (fgets(op, sizeof(op), stdin) == NULL)
         {
@@ -925,9 +925,39 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
             puts(ans);
             puts("");
         }
+        else if (strcmp("4", op) == 0)
+        {
+            puts("Logout in corso...");
+            puts("Terminazione Comunicazione.");
+
+            unsigned char iv[IV_LENGTH];
+            RAND_bytes(iv, IV_LENGTH);
+            char ans[MAX_RESULT_CHAR];
+            unsigned char cipher_ans[CIPHER_LENGTH];
+
+            sprintf(ans, "terminazione");
+
+            int ct_ans_len = encrypt_data((unsigned char *)ans, strlen(ans), K_ab, iv, cipher_ans);
+
+            // Invio dell'IV e del ciphertext
+            unsigned char message_to_send[IV_LENGTH + ct_ans_len];
+            memcpy(message_to_send, iv, IV_LENGTH);
+            memcpy(message_to_send + IV_LENGTH, cipher_ans, ct_ans_len);
+
+            ssize_t bytes_sent = send(sd, message_to_send, IV_LENGTH + ct_ans_len, 0);
+
+            if (bytes_sent < 0)
+            {
+                perror("Errore send");
+                exit(EXIT_FAILURE);
+            }
+
+            close(sd);
+            exit(EXIT_SUCCESS);
+        }
         else
         {
-            puts("Operazione non valida. Si prega di selezionare un'opzione tra 1, 2 e 3.");
+            puts("Operazione non valida. Si prega di selezionare un'opzione tra 1, 2, 3 e 4.");
         }
     }
 }
