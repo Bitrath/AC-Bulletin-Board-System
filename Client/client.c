@@ -605,7 +605,7 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
             clean_stdin();
             continue;
         }
-        else if (strlen(pw) < 6)
+        else if (strlen(pw) < 7)
         {
             fprintf(stderr, "La password inserita e' troppo corta. (< 6 char)\n");
             continue;
@@ -660,7 +660,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
     while (true)
     {
         puts("Selezionare l'operazione da eseguire:");
-        puts("1) List n last available messages.\n2) Get msg by id.\n3) Add msg to BBS.");
+        puts("1) List n last available messages.\n2) Get msg by id.\n3) Add msg to BBS.\n4)Logout.");
 
         if (fgets(op, sizeof(op), stdin) == NULL)
         {
@@ -830,7 +830,6 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
             unsigned char id[ID_LEN];
             char id_hex[ID_LEN_HEX];
             char title[MAX_USER_CHAR];
-            char author[MAX_USER_CHAR];
             char body[MAX_BODY];
             char msg_to_send[MAX_RETURN_COMMAND];
 
@@ -854,16 +853,6 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
             title[strlen(title) - 1] = '\0';
 
-            puts("Inserire l'autore:");
-
-            if (fgets(author, sizeof(author), stdin) == NULL)
-            {
-                fprintf(stderr, "Errore nella lettura dell'input\n");
-                exit(EXIT_FAILURE);
-            }
-
-            author[strlen(author) - 1] = '\0';
-
             puts("Inserire il corpo del messaggio:");
 
             if (fgets(body, sizeof(body), stdin) == NULL)
@@ -873,8 +862,9 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
             }
 
             body[strlen(body) - 1] = '\0';
+            user[strlen(user) - 1] = '\0';
 
-            snprintf(msg_to_send, sizeof(msg_to_send), "%s, %s, %s, %s", id_hex, title, author, body);
+            snprintf(msg_to_send, sizeof(msg_to_send), "%s, %s, %s, %s", id_hex, title, user, body);
 
             puts(msg_to_send);
 
@@ -1016,8 +1006,8 @@ int main(int argc, char **argv)
     memcpy(cipher_result, cipher_result + IV_LENGTH, ciphertext_len);
 
     // decrypting del risultato della ricerca dell'user nel DB
-
     int ct_result_len = decrypt_data(cipher_result, ciphertext_len, K_ab, iv, result);
+    result[strlen("not_found")] = '\0';
 
     if (strcmp((char *)result, "found") == 0) // client registrato
     {

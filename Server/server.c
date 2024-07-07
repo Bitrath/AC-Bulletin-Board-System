@@ -119,10 +119,10 @@ int client_control(int ns, unsigned char *user, unsigned char *K_ab) // ritorna 
         pthread_exit(NULL);
     }
 
-    user[user_len] = '\0';
+    user[user_len - 1] = '\0';
     printf("User ricevuto: %s\n", (char *)user);
 
-    // --- CONTROLLO EFFETTIVO SUL FILE utenti.txt ---
+    // --- CONTROLLO EFFETTIVO SUL FILE user_pass_hash.txt ---
 
     char initial_command[COMMAND_DIM];
     snprintf(initial_command, COMMAND_DIM, "grep -qw '%s' Server-Wallet/User_Credentials/user_pass_hash.txt", user);
@@ -526,6 +526,15 @@ unsigned char *handshake(int ns, unsigned int *k_len)
     return session_key;
 }
 
+void remove_newline(char *str)
+{
+    char *newline_pos = strchr(str, '\n');
+    if (newline_pos != NULL)
+    {
+        *newline_pos = '\0';
+    }
+}
+
 void addFile(char *nomeFile, char *salt, char *user)
 {
     FILE *fd = fopen(nomeFile, "a");
@@ -537,7 +546,9 @@ void addFile(char *nomeFile, char *salt, char *user)
     }
     size_t salt_len = strlen(salt);
     size_t user_len = strlen(user);
+    remove_newline(user);
 
+    fwrite("\n", sizeof(char), 1, fd);
     fwrite(salt, sizeof(char), salt_len, fd);
     fwrite(" ", sizeof(char), 1, fd);
     fwrite(user, sizeof(char), user_len, fd);
@@ -582,6 +593,7 @@ void binToHex(const unsigned char *bin, size_t len, char *output)
 char *find_salt(const char *filename, const char *username)
 {
     FILE *file = fopen(filename, "r");
+    
     if (!file)
     {
         perror("Errore nell'apertura del file");
@@ -620,7 +632,51 @@ char *find_salt(const char *filename, const char *username)
     return NULL; // Utente non trovato
 }
 
-char *find_hashed_pw(const char *filename, const char *hashed_pw)
+char *verify_user_email(const char *filename, const char *input_user, const char *input_email)
+{
+    FILE *file = fopen(filename, "r");
+    if (!file)
+    {
+        perror("Errore nell'apertura del file");
+        return NULL;
+    }
+
+    char line[MAX_LINE_LENGTH];
+    char user[MAX_LINE_LENGTH];
+    char email[MAX_LINE_LENGTH];
+
+    while (fgets(line, sizeof(line), file))
+    {
+        // Rimuove il carattere di nuova linea se presente
+        line[strcspn(line, "\n")] = '\0';
+
+        // Analizza la linea per trovare user ed email
+        if (sscanf(line, "%s %s", user, email) == 2)
+        {
+            // Confronta l'input_user e l'input_email con quelli trovati nel file
+            if (strcmp(user, input_user) == 0 && strcmp(email, input_email) == 0)
+            {
+                fclose(file);
+                puts("Utente e email verificati con successo.");
+                return strdup(email);
+            }
+
+            printf("Input email: %s\n", input_email);
+            printf("Stored email: %s\n", email);
+            printf("Input user: %s\n", input_user);
+            printf("Stored user: %s\n", user);
+        }
+        else
+        {
+            printf("Errore nel parsing della linea: '%s'\n", line);
+        }
+    }
+    fclose(file);
+    puts("Utente o email non trovati.");
+    return NULL;
+}
+
+char *find_hashed_pw(const char *filename, const char *hashed_pw, char *user)
 {
     FILE *file = fopen(filename, "r");
     if (!file)
@@ -631,17 +687,16 @@ char *find_hashed_pw(const char *filename, const char *hashed_pw)
 
     char line[MAX_LINE_LENGTH];
     char pw[MAX_LINE_LENGTH];
-    char user[MAX_LINE_LENGTH];
+    char stored_user[MAX_LINE_LENGTH];
 
     while (fgets(line, sizeof(line), file))
     {
-
         // Rimuove il carattere di nuova linea se presente
         line[strcspn(line, "\n")] = '\0';
 
-        if (sscanf(line, "%s %s", pw, user) == 2)
+        if (sscanf(line, "%s %s", pw, stored_user) == 2)
         {
-            if (strcmp(pw, hashed_pw) == 0)
+            if (strcmp(pw, hashed_pw) == 0 && strcmp(user, stored_user) == 0)
             {
                 fclose(file);
                 puts("Password accettata: login effettuato con successo.");
@@ -716,21 +771,34 @@ int login(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
     printf("Password ricevuta: %s\n", pw);
 
+    const char *filename = "Server-Wallet/User_Credentials/user_email.txt";
+
+    remove_newline(email);
+
+    char *stored_email = verify_user_email(filename, user, email);
+    puts(stored_email);
+
+    if (stored_email == NULL)
+        return 0;
+
     // trovo il salt corrispondente all'utente per poter poi hashare la password inserita dall'utente per
     // confrontarla con quella in archivio.
-    const char *filename = "Server-Wallet/User_Credentials/user_salt.txt";
-    user[strlen(user) - 1] = '\0'; // tolgo il newline
+    filename = "Server-Wallet/User_Credentials/user_salt.txt";
     char *salt = find_salt(filename, user);
-    size_t salt_size = NONCE_LEN;
 
     // hashing della password e conversione in hex
     unsigned char hashed_msg[EVP_MAX_MD_SIZE];
-    hash(pw, hashed_msg, (unsigned char *)salt, salt_size);
+    remove_newline(pw);
+    remove_newline(salt);
+    remove_newline(user);
+
+    hash(pw, hashed_msg, (unsigned char *)salt, NONCE_LEN);
+
     char hashed_msg_hex[SHA256_DIGEST_LENGTH * 2 + 1];
     binToHex(hashed_msg, SHA256_DIGEST_LENGTH, hashed_msg_hex);
 
     filename = "Server-Wallet/User_Credentials/user_pass_hash.txt";
-    char *stored_pw = find_hashed_pw(filename, hashed_msg_hex);
+    char *stored_pw = find_hashed_pw(filename, hashed_msg_hex, user);
 
     if (stored_pw != NULL)
         return 1;
@@ -763,7 +831,7 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     int ct_result_len = decrypt_data(cipher_email, ciphertext_len, K_ab, iv, (unsigned char *)email);
 
-    email[ct_result_len] = '\0';
+    email[ct_result_len - 1] = '\0';
     printf("Email ricevuta: %s\n", email);
 
     sleep(1); // altrimenti entrano in conflitto le due send e si sovrappongono
@@ -790,7 +858,7 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     ct_result_len = decrypt_data(cipher_pw, ciphertext_len, K_ab, iv, (unsigned char *)pw);
 
-    pw[ct_result_len] = '\0';
+    pw[ct_result_len - 1] = '\0';
 
     printf("Password ricevuta: %s\n", pw);
 
@@ -799,16 +867,15 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
     /////////////////////////////////
 
     unsigned char hashed_msg[EVP_MAX_MD_SIZE];
-    unsigned char *salt;
-    size_t salt_size = NONCE_LEN;
+    unsigned char salt[NONCE_LEN];
 
-    if (RAND_bytes(salt, salt_size) != 1)
+    if (RAND_bytes(salt, NONCE_LEN) != 1)
     {
         fprintf(stderr, "Errore nella generazione del salt.\n");
         exit(EXIT_FAILURE);
     }
 
-    hash(pw, hashed_msg, salt, salt_size);
+    hash(pw, hashed_msg, salt, NONCE_LEN);
 
     // Conversione del salt e dell'hash in formato esadecimale
     char salt_hex[NONCE_LEN * 2 + 1];
@@ -822,6 +889,9 @@ void registration(int sd, char *email, char *user, char *pw, unsigned char *K_ab
 
     file = "Server-Wallet/User_Credentials/user_pass_hash.txt";
     addFile(file, hashed_msg_hex, user);
+
+    file = "Server-Wallet/User_Credentials/user_email.txt";
+    addFile(file, user, email);
 }
 
 char *list(const char *n)
