@@ -14,3 +14,4 @@ aae37a39, The Walking Dead, sam, Noi siamo i morti viventi.
 525bba9e, Mr. Robot, sam, Democracy has been hacked.
 1469097e, Blade Runner, sam, Io ne ho viste cose che voi umani non potreste immaginarvi!
 35d1c0b5, Dune: Parte II, kojima, Possa il tuo coltello scheggiarsi e spezzarsi.
+42c7b8d3, Dune: Part One, kojima, Arrakis è Arrakis, e il deserto prende il debole. Il mio deserto. Il mio Arrakis. Il mio Dune.

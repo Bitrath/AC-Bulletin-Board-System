@@ -1104,38 +1104,10 @@ void which_function(int sd, const char *command, unsigned char *K_ab)
             }
         }
     }
-    else
+    else if (command[0] == 't')
     {
-        unsigned char cipher_ans[CIPHER_LENGTH + IV_LENGTH];
-        char ans[MAX_RESULT_CHAR];
-        unsigned char *iv;
-
-        ssize_t bytes_received = recv(sd, cipher_ans, sizeof(cipher_ans), 0);
-
-        if (bytes_received < 0)
-        {
-            perror("SERVER error: Failed to get the encrypted password from the client.\n");
-            close(sd);
-            exit(EXIT_FAILURE);
-        }
-
-        // Copia l'IV dai primi 'iv_len' byte del buffer ricevuto
-        memcpy(iv, cipher_ans, IV_LENGTH);
-
-        // Calcola la salt_len effettiva del ciphertext
-        size_t ciphertext_len = bytes_received - IV_LENGTH;
-
-        // Copia il ciphertext dal buffer (partendo dal byte 'iv_len' fino alla fine)
-        memcpy(cipher_ans, cipher_ans + IV_LENGTH, ciphertext_len);
-
-        int ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
-
-        ans[ct_result_len] = '\0';
-
-        if (strcmp("terminazione", ans) == 0)
-        {
-            puts("CLIENT disconnesso.");
-        }
+        puts("Client disconnesso.");
+        safe_exit(sd);
     }
 }
 
@@ -1167,6 +1139,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
         int ct_result_len = decrypt_data(cipher_ans, ciphertext_len, K_ab, iv, (unsigned char *)ans);
         ans[ct_result_len] = '\0';
+        int flag = 0;
 
         which_function(sd, ans, K_ab);
     }
