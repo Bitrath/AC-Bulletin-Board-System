@@ -15,3 +15,5 @@ aae37a39, The Walking Dead, sam, Noi siamo i morti viventi.
 1469097e, Blade Runner, sam, Io ne ho viste cose che voi umani non potreste immaginarvi!
 35d1c0b5, Dune: Parte II, kojima, Possa il tuo coltello scheggiarsi e spezzarsi.
 42c7b8d3, Dune: Part One, kojima, Arrakis è Arrakis, e il deserto prende il debole. Il mio deserto. Il mio Arrakis. Il mio Dune.
+4c16059e, Il Signore degli Anelli: La compagnia dell'anello, sam, Ti avrei seguito fratello mio, mio capitano, mio re…
+9043d858, Alan Wake, sam, Stephen King una volta scrisse che ‘Gli incubi esistono al di fuori della ragione e le spiegazioni divertono ben poco; sono antitetiche alla poesia del terrore’. In una storia dell’orrore, la vittima si chiede sempre “perché?”, ma non c'è una risposta e non deve esserci. Il mistero irrisolto rimane dentro di noi ed è ciò che ricordiamo maggiormente. Il mio nome è Alan Wake, sono uno scrittore.
