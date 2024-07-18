@@ -11,6 +11,7 @@
 #define ID_LEN 8
 #define ID_LEN_HEX 4
 #define MAX_BODY 4000
+#define TITLE_DIM 64
 #include <time.h>
 #include <netdb.h>
 #include <stdio.h>
@@ -829,7 +830,7 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
 
             unsigned char id[ID_LEN];
             char id_hex[ID_LEN_HEX];
-            char title[MAX_USER_CHAR];
+            char title[TITLE_DIM];
             char body[MAX_BODY];
             char msg_to_send[MAX_RETURN_COMMAND];
 
@@ -862,8 +863,11 @@ void vip_mode(int sd, char *email, char *user, char *pw, unsigned char *K_ab)
             }
 
             body[strlen(body) - 1] = '\0';
-            user[strlen(user) - 1] = '\0';
-            puts(user);
+
+            if (user[strlen(user) - 1] == '\n')
+            {
+                user[strlen(user) - 1] = '\0';
+            }
 
             snprintf(msg_to_send, sizeof(msg_to_send), "%s, %s, %s, %s", id_hex, title, user, body);
 
